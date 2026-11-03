@@ -71,7 +71,8 @@ static func _bits_for(n: int, minimum: int) -> int:
 	return maxi(b, minimum)
 
 
-static func decode(raw: PackedByteArray, cx_: int, cz_: int, tbl: BlockTable) -> ChunkData:
+## Same as decode(), but palette entries become StateRegistry state ids (full block states for the mesh renderer).
+static func decode(raw: PackedByteArray, cx_: int, cz_: int, tbl: BlockTable, reg: StateRegistry = null) -> ChunkData:
 	var root := Nbt.parse(raw)
 	if root.is_empty():
 		return null
@@ -103,6 +104,9 @@ static func decode(raw: PackedByteArray, cx_: int, cz_: int, tbl: BlockTable) ->
 		sec.pal.resize(palette.size())
 		for i in palette.size():
 			var e := _palette_entry(palette[i])
+			if reg != null:
+				sec.pal[i] = reg.intern(e["name"], e["props"])
+				continue
 			var id := tbl.id_of(e["name"])
 			# waterlogged blocks and other non-solid blocks inside water read as water from above
 			if tbl.kind[id] != BlockTable.KIND_FLUID and e["props"].get("waterlogged", "false") in ["true", true, 1]:

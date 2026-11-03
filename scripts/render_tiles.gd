@@ -37,13 +37,38 @@ func _initialize() -> void:
 		quit(1)
 		return
 	var world := WorldReader.new(region_dir, table)
-	var renderer := FlatRenderer.new()
-	if not renderer.setup(table, world):
-		quit(1)
-		return
-	renderer.gpu_columns = not cpu_columns
-	renderer.verify = verify
-	print("device: %s  driver: %s  setup %.0f ms" % [renderer.device_name, RenderingServer.get_current_rendering_driver_name(), (Time.get_ticks_usec() - t_start) / 1000.0])
+	var mode: String = args.get("mode", "mesh")
+	var renderer: FlatRenderer = null
+	var iso: IsoRenderer = null
+	if mode == "fast":
+		renderer = FlatRenderer.new()
+		if not renderer.setup(table, world):
+			quit(1)
+			return
+		renderer.gpu_columns = not cpu_columns
+		renderer.verify = verify
+		print("device: %s  driver: %s  setup %.0f ms" % [renderer.device_name, RenderingServer.get_current_rendering_driver_name(), (Time.get_ticks_usec() - t_start) / 1000.0])
+	else:
+		var persp := Persp.by_name(args.get("persp", "iso_S_90_lowres"))
+		if persp == null:
+			push_error("unknown perspective %s" % args.get("persp", ""))
+			quit(2)
+			return
+		var reg := StateRegistry.new()
+		if not reg.load_dir(data_dir):
+			quit(1)
+			return
+		iso = IsoRenderer.new()
+		iso.min_y = int(args.get("min-y", "-64"))
+		iso.max_y = int(args.get("max-y", "320"))
+		iso.front_ccw_vk = args.get("flip-front", "0") == "1"
+		iso.verbose = args.get("verbose", "0") == "1"
+		if args.has("probe"):
+			iso.probe = PackedInt32Array(Array(String(args["probe"]).split(",")).map(func(s): return int(s)))
+		if not iso.setup(persp, reg, table, world):
+			quit(1)
+			return
+		print("device: %s  driver: %s  persp: %s  setup %.0f ms" % [iso.device_name, RenderingServer.get_current_rendering_driver_name(), persp.name, (Time.get_ticks_usec() - t_start) / 1000.0])
 
 	var total_tiles := 0
 	var matched := 0
@@ -52,7 +77,11 @@ func _initialize() -> void:
 		var tiles: Array[Image] = []
 		for i in (repeat if rects.size() == 1 else 1):
 			var t0 := Time.get_ticks_usec()
-			tiles = renderer.render(rect[0], rect[1], rect[2], rect[3])
+			if iso != null:
+				iso.next_generation()
+				tiles = iso.render(rect[0], rect[1], rect[2], rect[3])
+			else:
+				tiles = renderer.render(rect[0], rect[1], rect[2], rect[3])
 			print("render rect %s: %.0f ms (%d tiles)" % [rect, (Time.get_ticks_usec() - t0) / 1000.0, tiles.size()])
 		var dir := out_dir
 		if out_dir != "" and rects.size() > 1:
@@ -61,9 +90,15 @@ func _initialize() -> void:
 		total_tiles += tiles.size()
 		matched += r[0]
 		compared += r[1]
-	print("cpu(columns) %.0f ms  gpu(dispatch+readback) %.0f ms  chunks decoded %d (%.0f ms)" % [renderer.cpu_ms, renderer.gpu_ms, world.stats["chunks"], world.stats["chunk_ms"]])
+	if iso != null:
+		print("mesh %.0f ms  gather %.0f ms  gpu(raster+readback) %.0f ms  quads %d  chunks decoded %d (%.0f ms)" % [iso.timing["mesh_ms"], iso.timing["gather_ms"], iso.timing["gpu_ms"], iso.timing["quads"], world.stats["chunks"], world.stats["chunk_ms"]])
+		if not iso.reg.unknown.is_empty():
+			var uk := iso.reg.unknown.keys()
+			print("unknown blockstates: ", uk.slice(0, 10))
+	else:
+		print("cpu(columns) %.0f ms  gpu(dispatch+readback) %.0f ms  chunks decoded %d (%.0f ms)" % [renderer.cpu_ms, renderer.gpu_ms, world.stats["chunks"], world.stats["chunk_ms"]])
 	print("hash %.0f ms, webp %.0f ms, %d tiles" % [_hash_ms, _webp_ms, total_tiles])
-	if verify:
+	if verify and renderer != null:
 		print("verify: %d columns differ between GPU and CPU column builders" % renderer.mismatched_columns)
 	if not table.unknown.is_empty():
 		var keys := table.unknown.keys()

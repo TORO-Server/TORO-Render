@@ -7,6 +7,9 @@ const COL_WORDS := 16  # 5 layers * 3 words + count
 
 var region_dir := ""
 var table: BlockTable
+## set for the mesh renderer: chunks then hold StateRegistry state ids instead of BlockTable ids
+var registry: StateRegistry = null
+var chunk_cache_limit := 512
 var _regions := {}
 var _chunks := {}
 var stats := {"chunks": 0, "chunk_ms": 0.0}
@@ -35,7 +38,7 @@ func chunk(cx: int, cz: int) -> ChunkData:
 	var key := Vector2i(cx, cz)
 	if _chunks.has(key):
 		return _chunks[key]
-	if _chunks.size() >= 512:
+	if _chunks.size() >= chunk_cache_limit:
 		_chunks.clear()
 	var c: ChunkData = null
 	var rg := _region(cx >> 5, cz >> 5)
@@ -59,7 +62,7 @@ func chunk(cx: int, cz: int) -> ChunkData:
 					push_warning("unsupported chunk compression %d at %d,%d" % [comp, cx, cz])
 				if not raw.is_empty():
 					var t0 := Time.get_ticks_usec()
-					c = ChunkData.decode(raw, cx, cz, table)
+					c = ChunkData.decode(raw, cx, cz, table, registry)
 					stats["chunks"] += 1
 					stats["chunk_ms"] += (Time.get_ticks_usec() - t0) / 1000.0
 	_chunks[key] = c
