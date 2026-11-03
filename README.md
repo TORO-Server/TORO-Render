@@ -75,6 +75,16 @@ with the HashCode (CRC32 over ARGB ints little-endian). Tile `(tx,ty)` of `iso_S
 Beyond Dynmap-GPU: runs unprivileged in a read-only container on the Intel iGPU at `nice 19`, waits for 0 players,
 resumes from a state file, defers zoom-out to one final pass.
 
+## Automatic updates around players
+
+`tools/auto_update.py` (one process per map) polls the region files of a world. Anvil headers keep a "last saved"
+timestamp per chunk, so chunks the server saved since the previous poll - terrain generated while players explore, blocks
+placed or broken - are the changed ones; files whose mtime did not move are not opened. The changed chunks and their
+neighbours are projected into tiles with the map's perspective, the 8x8 mega tiles involved are re-rendered at low priority
+on the iGPU, written with the hash skip and the zoom-out parents are rebuilt. Only runs below `--max-load`, at most
+`--max-megas` mega tiles per cycle (rest stays queued in `~/.toro-gpu-watch-<map>.json`). Walking through already saved
+terrain changes nothing on disk, so nothing is re-rendered. Unit template: `docker/toro-gpu-watch.service` (not installed).
+Tested on a scratch region and MapID (2 saved chunks -> 1 mega tile -> 64 tiles + 20 parents, next poll idle).
 ## Production safety
 
 * Containers: 1 CPU at the lowest share, `nice 19`, `ionice idle`, 1 GB memory, read-only root and world mount,
