@@ -1,6 +1,6 @@
 .git
+.github
 .godot
 data
 out
 docs
-tools

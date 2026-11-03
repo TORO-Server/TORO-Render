@@ -125,6 +125,8 @@ def main():
     ap.add_argument("--max-load", type=float, default=2.5)
     ap.add_argument("--max-megas", type=int, default=4, help="mega tiles rendered per cycle")
     ap.add_argument("--rate", type=float, default=2_000_000)
+    ap.add_argument("--local", action="store_true",
+                    help="run inside the toro-gpu-renderer image (resident container): render and upload in-process")
     ap.add_argument("--once", action="store_true", help="one cycle, then exit")
     ap.add_argument("--dry-run", action="store_true", help="render but do not write to TiDB")
     ap.add_argument("--state", default=None)
@@ -183,9 +185,14 @@ def render_and_upload(a, env, group):
     env = dict(env, OUT_DIR=out)
     rects = ";".join(f"{mx * m},{my * m},{m},{m}" for mx, my in group)
     t0 = time.time()
-    r = subprocess.run(["bash", os.path.join(ROOT, "docker", "run.sh"), "--region-dir", "/world", "--tiles", rects,
-                        "--out", "/out", "--persp", a.persp, "--min-y", str(a.min_y), "--max-y", str(a.max_y)],
-                       env=env, capture_output=True, text=True)
+    if a.local:  # inside the resident container: render straight through the cage entrypoint, no nested docker
+        r = subprocess.run([os.path.join(ROOT, "docker", "entrypoint.sh"), "--region-dir", a.world_dir, "--tiles", rects,
+                            "--out", out, "--persp", a.persp, "--min-y", str(a.min_y), "--max-y", str(a.max_y)],
+                           env=env, capture_output=True, text=True)
+    else:
+        r = subprocess.run(["bash", os.path.join(ROOT, "docker", "run.sh"), "--region-dir", "/world", "--tiles", rects,
+                            "--out", "/out", "--persp", a.persp, "--min-y", str(a.min_y), "--max-y", str(a.max_y)],
+                           env=env, capture_output=True, text=True)
     dirs = [os.path.join(out, f"r{mx * m}_{my * m}" if len(group) > 1 else "") for mx, my in group]
     if r.returncode != 0 or not all(os.path.exists(os.path.join(d, "manifest.json")) for d in dirs):
         qr.log(f"render failed (rc={r.returncode})\n" + (r.stdout + r.stderr)[-600:])
@@ -193,8 +200,8 @@ def render_and_upload(a, env, group):
     t1 = time.time()
     up_args = ["upload", "--zoom-max", str(a.zoom_max), "--map-id", str(a.map_id), "--host", a.db_host,
                "--port", str(a.db_port), "--rate", str(a.rate)] + (["--dry-run"] if a.dry_run else [])
-    cdirs = ["/out/" + os.path.relpath(d, out) if d != out else "/out" for d in dirs] if a.uploader != "python" else dirs
-    ns = argparse.Namespace(uploader=a.uploader, tools_image=a.tools_image)
+    cdirs = ["/out/" + os.path.relpath(d, out) if d != out else "/out" for d in dirs] if a.uploader != "python" and not a.local else dirs
+    ns = argparse.Namespace(uploader="python" if a.local else a.uploader, tools_image=a.tools_image)
     up = qr.tools(ns, up_args + ["--dir"] + cdirs, [(out, "/out", "ro")])
     if up.returncode != 0:
         qr.log("upload failed\n" + (up.stdout + up.stderr)[-600:])
