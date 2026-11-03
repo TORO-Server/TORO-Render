@@ -62,10 +62,27 @@ not covered by this prototype. (Source of the format facts: BlueMap release note
   end to end on scratch MapIDs 99001/99002 (rows deleted afterwards); its zoom-out matches the stored parents of
   MapID 30001 (14 of 15 sampled parents hash-identical, the 15th differs only in transparent pixels' RGB).
 
-## 6. Open items
+## 6. Update 2026-11-04: full Dynmap-GPU feature parity
 
-* Iso 30° view: Godot's rasteriser works offscreen on the iGPU (`scripts/iso_probe.gd`), but Dynmap-exact output needs
-  the full model/lighting port.
-* Entity blocks, `uvlock`, multi-layer water, non-cube models.
-* A real production run has not been started: no map has been written other than the scratch MapIDs.
-* NBT parsing is GDScript (~1.5 ms/chunk); a native module would remove it, but the GPU parts are no longer limiting.
+The Godot project now renders every perspective Dynmap-GPU does, from real block models:
+
+* Mesh renderer: `state_registry.gd` (blockstates/models -> quads, float32-exact), `mesh_chunks.glsl` (GPU mesher),
+  `raster.glsl` (orthographic raster, depth, Dynmap shading, translucent pass), `persp.gd` (Dynmap transform).
+* Verified against `dg-run.exe render` on the same snapshots: `iso_S_90_lowres/hires` 100.00%, `iso_SE_30_lowres/hires`
+  >= 99.99% over 8x8 mega tiles of the main and flat worlds (`tools/compare-ref.ps1`).
+* Intel UHD 730 in the production container: an 8x8 oblique mega tile (1.14 M quads, 456 chunks) takes 1.3 s render
+  (pack 0.76 s, GPU mesh 0.46 s, raster 0.05 s) plus 0.25 s hash/WebP at `nice 19`. The CPU reference mesher needs
+  ~140 ms per chunk, i.e. minutes per mega tile; it is kept for verification (`--mesher cpu`, `--cmp-chunk`).
+* Driver parity (`queue_runner.py` + `tiledb.py plan|upload|zoom`): world scan with the Dynmap-GPU cache format,
+  candidate tiles / mega tiles (840,035 tiles for flat/t, identical to Dynmap-GPU), `--only-missing`, `--count-missing`,
+  `--zoom-all`, `--zoom-since`, `--bbox`, `--limit`, `--skip-megas`, resume state, deferred zoom-out. Verified on scratch
+  MapID 99001 on the server (rows deleted afterwards).
+* Differences measured on the iGPU: 22 of 16384 pixels of a forest tile differ from the RTX/Rust result
+  (depth interpolation / blend rounding of a different GPU).
+
+## 7. Open items
+
+* Entity blocks, `uvlock` (neither is drawn by Dynmap-GPU either).
+* No production map has been written by this renderer yet (only scratch MapIDs); `flat/t` and `main/t` were filled by
+  Dynmap-GPU on the RTX 5050. Re-rendering a map with `--only-missing` first is the safe way to start.
+* NBT parsing is GDScript (~1.7 ms/chunk) and is now the largest cost; a native module would remove it.
