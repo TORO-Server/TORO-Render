@@ -32,9 +32,12 @@ the Dockerfile verifies it with the release's `SHA512-SUMS.txt`.
   99.85% exact pixels on 4 plain tiles, 94.9% on a 16-tile area with buildings and trees.
 * **Identical output on both GPUs**: the 4 test tiles have the same HashCode (e.g. `-8,4` = 54807240) on the RTX 3060
   and on the server's UHD 730.
-* Timing on the server iGPU (container limited to 1 CPU, lowest priority): 4 tiles in about 177 ms, of which the GPU
-  dispatch + readback is about 4 ms. **The GDScript column builder (~40 ms/tile) dominates**; chunk decoding is
-  small (17 ms for 32 chunks). A full-world run needs that stage moved to a GDExtension or onto the GPU.
+* Timing on the server iGPU (container limited to 1 CPU, lowest priority). The first version built block columns in
+  GDScript (~47 ms/tile). **Column resolution now runs on the GPU** (`shaders/resolve_columns.glsl` reads the
+  bit-packed palette/long arrays and light nibbles directly), with 0 differing columns versus the CPU builder on both
+  GPUs. 16 tiles take ~90-107 ms cold (NBT parsing in GDScript is the rest), a whole 8x8-mega group of 256 tiles
+  about 1.6 s plus 4 s container start-up. GPU dispatch + readback is ~1 ms/tile.
+* Start-up: Forward+ initialisation took 8.5 s in the container; the Mobile renderer takes 2.5 s, so it is the default.
 * Hash and lossless WebP encoding use Godot's `Image.save_webp_to_buffer(false, 1.0)`; sizes are similar to the Rust
   encoder for plain tiles.
 
@@ -54,9 +57,15 @@ not covered by this prototype. (Source of the format facts: BlueMap release note
 * `docker/run.sh`: `--cpus 1 --cpu-shares 32`, `nice -n 19`, `ionice -c3`, 1 GB memory, `--read-only` root,
   world mounted read-only, no capabilities, `no-new-privileges`, auto-removed.
 * World reads are limited to the region files that contain the requested tiles. Run when few players are online.
-* No writes to `dynmap_Tiles` yet, so there is no impact on TiDB.
+* `tools/queue_runner.py` only renders when the proxy's `online.txt` reports 0 players (fresh) and load1 < 4.
+* TiDB writes (`tools/tiledb.py`): point lookups only, 8 MB/s default budget, hash skip, blank-tile delete. Verified
+  end to end on scratch MapIDs 99001/99002 (rows deleted afterwards); its zoom-out matches the stored parents of
+  MapID 30001 (14 of 15 sampled parents hash-identical, the 15th differs only in transparent pixels' RGB).
 
-## 6. Next steps
+## 6. Open items
 
-See the list in the repository README / final report: native column builder, zoom-out tiles, TiDB uploader, iso (30°) view,
-entity blocks, a queue runner with player-aware throttling.
+* Iso 30° view: Godot's rasteriser works offscreen on the iGPU (`scripts/iso_probe.gd`), but Dynmap-exact output needs
+  the full model/lighting port.
+* Entity blocks, `uvlock`, multi-layer water, non-cube models.
+* A real production run has not been started: no map has been written other than the scratch MapIDs.
+* NBT parsing is GDScript (~1.5 ms/chunk); a native module would remove it, but the GPU parts are no longer limiting.

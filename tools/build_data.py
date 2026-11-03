@@ -72,10 +72,16 @@ def load_model(jar, ref, cache):
 
 
 def resolve_tex(textures, ref):
+    # 26.x texture entries may be objects: {"sprite": "minecraft:block/glass", "force_translucent": true}
     seen = 0
-    while isinstance(ref, str) and ref.startswith("#") and seen < 16:
-        ref = textures.get(ref[1:])
-        seen += 1
+    while seen < 16:
+        if isinstance(ref, dict):
+            ref = ref.get("sprite")
+        if isinstance(ref, str) and ref.startswith("#"):
+            ref = textures.get(ref[1:])
+            seen += 1
+            continue
+        break
     return ref if isinstance(ref, str) and not ref.startswith("#") else None
 
 

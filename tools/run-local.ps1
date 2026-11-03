@@ -13,7 +13,7 @@ $root = Split-Path -Parent $PSScriptRoot
 Push-Location $root
 try {
     & $Godot --headless --path . --import 2>&1 | Out-Null
-    $a = @("--path", ".", "--rendering-driver", "vulkan", "--resolution", "64x64", "--position", "0,0", "-s", "scripts/render_tiles.gd", "--",
+    $a = @("--path", ".", "--rendering-driver", "vulkan", "--rendering-method", "mobile", "--resolution", "64x64", "--position", "0,0", "-s", "scripts/render_tiles.gd", "--",
         "--region-dir", $Region, "--tiles", $Tiles, "--repeat", $Repeat)
     if ($Out) { $a += @("--out", $Out) }
     if ($Ref) { $a += @("--ref", $Ref) }

@@ -21,5 +21,6 @@ exec docker run --rm --name toro-gpu-render \
     --cpus "${CPUS:-1}" --cpu-shares 32 --memory "${MEMORY:-1g}" --pids-limit 256 \
     --read-only --tmpfs /tmp:size=128m,exec \
     --cap-drop ALL --security-opt no-new-privileges \
+    -e GODOT_SCRIPT="${GODOT_SCRIPT:-scripts/render_tiles.gd}" -e GODOT_RENDERING_METHOD="${GODOT_RENDERING_METHOD:-mobile}" \
     -v "$DATA_DIR:/data:ro" -v "$WORLD_DIR:/world:ro" -v "$OUT_DIR:/out" \
     "$IMAGE" "$@"
