@@ -69,6 +69,29 @@ func load_dir(dir: String) -> bool:
 	return true
 
 
+## GPU lookup: 2 ints per block id (kind | tex << 8 | opaque << 24, tint code).
+func gpu_block_info() -> PackedByteArray:
+	var a := PackedInt32Array()
+	a.resize(names.size() * 2)
+	for i in names.size():
+		var op := 0
+		if kind[i] == KIND_SOLID and tex_opaque[tex[i]] == 1:
+			op = 1
+		a[i * 2] = kind[i] | (tex[i] << 8) | (op << 24)
+		a[i * 2 + 1] = tint[i]
+	return a.to_byte_array()
+
+
+## GPU lookup: grass, foliage, water colour per biome id.
+func gpu_biome_colors() -> PackedByteArray:
+	var a := PackedInt32Array()
+	for i in biome_grass.size():
+		a.append(biome_grass[i])
+		a.append(biome_foliage[i])
+		a.append(biome_water[i])
+	return a.to_byte_array()
+
+
 func id_of(block_name: String) -> int:
 	var i = _ids.get(block_name)
 	if i == null:

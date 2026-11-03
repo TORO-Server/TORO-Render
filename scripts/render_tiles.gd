@@ -21,6 +21,8 @@ func _initialize() -> void:
 	var data_dir: String = args.get("data-dir", ProjectSettings.globalize_path("res://data"))
 	var repeat := int(args.get("repeat", "1"))
 	var ref_dir: String = args.get("ref", "")
+	var cpu_columns: bool = args.get("columns", "gpu") == "cpu"
+	var verify: bool = args.get("verify", "0") == "1"
 
 	var t_start := Time.get_ticks_usec()
 	var table := BlockTable.new()
@@ -32,6 +34,8 @@ func _initialize() -> void:
 	if not renderer.setup(table, world):
 		quit(1)
 		return
+	renderer.gpu_columns = not cpu_columns
+	renderer.verify = verify
 	print("device: %s  driver: %s  setup %.0f ms" % [renderer.device_name, RenderingServer.get_current_rendering_driver_name(), (Time.get_ticks_usec() - t_start) / 1000.0])
 
 	var tiles: Array[Image] = []
@@ -40,12 +44,17 @@ func _initialize() -> void:
 		tiles = renderer.render(rect[0], rect[1], rect[2], rect[3])
 		print("render %d: %.0f ms (%d tiles)" % [i, (Time.get_ticks_usec() - t0) / 1000.0, tiles.size()])
 	print("cpu(columns) %.0f ms  gpu(dispatch+readback) %.0f ms  chunks decoded %d (%.0f ms)" % [renderer.cpu_ms, renderer.gpu_ms, world.stats["chunks"], world.stats["chunk_ms"]])
+	if verify:
+		print("verify: %d columns differ between GPU and CPU column builders" % renderer.mismatched_columns)
+	print("section unpack: %d sections, %.0f ms" % [ChunkData.unpack_count, ChunkData.unpack_ms])
 	if not table.unknown.is_empty():
 		var keys := table.unknown.keys()
 		keys.sort_custom(func(a, b): return table.unknown[a] > table.unknown[b])
 		print("unknown blocks: ", keys.slice(0, 10))
 
 	var manifest := []
+	var hash_ms := 0.0
+	var webp_ms := 0.0
 	var matched := 0
 	var total := 0
 	var i := 0
@@ -56,13 +65,17 @@ func _initialize() -> void:
 			var img := tiles[i]
 			i += 1
 			var data := img.get_data()
+			var t_enc := Time.get_ticks_usec()
 			var blank := TileCodec.is_blank(data)
 			var hash := 0 if blank else TileCodec.crc_hash(data)
+			hash_ms += (Time.get_ticks_usec() - t_enc) / 1000.0
 			var entry := {"x": x, "y": y, "blank": blank, "hash": hash}
 			if not blank and out_dir != "":
 				DirAccess.make_dir_recursive_absolute(out_dir)
 				img.save_png(out_dir.path_join("%d_%d.png" % [x, y]))
+				var t_webp := Time.get_ticks_usec()
 				var webp := TileCodec.encode_webp(img)
+				webp_ms += (Time.get_ticks_usec() - t_webp) / 1000.0
 				var f := FileAccess.open(out_dir.path_join("%d_%d.webp" % [x, y]), FileAccess.WRITE)
 				f.store_buffer(webp)
 				entry["webp_bytes"] = webp.size()
@@ -87,6 +100,7 @@ func _initialize() -> void:
 	if out_dir != "":
 		var mf := FileAccess.open(out_dir.path_join("manifest.json"), FileAccess.WRITE)
 		mf.store_string(JSON.stringify(manifest, "  "))
+	print("hash %.0f ms, webp %.0f ms for %d tiles" % [hash_ms, webp_ms, manifest.size()])
 	for e in manifest:
 		print(e)
 	if total > 0:

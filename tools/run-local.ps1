@@ -6,6 +6,7 @@ param(
     [string] $Out = "",
     [string] $Ref = "",
     [int] $Repeat = 1,
+    [string] $Extra = "",
     [string] $Godot = "C:\tools\godot-4.7.2\Godot_v4.7.2-stable_win64_console.exe"
 )
 $root = Split-Path -Parent $PSScriptRoot
@@ -16,5 +17,6 @@ try {
         "--region-dir", $Region, "--tiles", $Tiles, "--repeat", $Repeat)
     if ($Out) { $a += @("--out", $Out) }
     if ($Ref) { $a += @("--ref", $Ref) }
+    if ($Extra) { $a += $Extra.Split(" ") }
     & $Godot @a
 } finally { Pop-Location }

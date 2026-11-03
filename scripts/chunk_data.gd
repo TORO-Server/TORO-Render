@@ -2,6 +2,8 @@ class_name ChunkData
 extends RefCounted
 ## One decoded chunk (1.18+ palette layout, 26.x quirks). Section block data is unpacked lazily.
 
+static var unpack_ms := 0.0
+static var unpack_count := 0
 var cx := 0
 var cz := 0
 var min_sec := 0
@@ -26,11 +28,22 @@ class Section:
 	var biome_data := PackedInt32Array()  # 64 palette indices, empty = uniform
 	var biome_uniform := 0
 
+	## 64 biome ids (4x4x4 cells), y-major like the chunk format.
+	func biome_bytes() -> PackedByteArray:
+		var out := PackedByteArray()
+		out.resize(64)
+		for i in 64:
+			out[i] = biome_uniform if biome_data.is_empty() else biome_pal[biome_data[i]]
+		return out
+
 	func block(lx: int, ly: int, lz: int) -> int:
 		if raw_data.is_empty():
 			return uniform
 		if blocks.is_empty():
+			var t0 := Time.get_ticks_usec()
 			blocks = Nbt.unpack(Nbt.longs(raw_data), bits, 4096)
+			ChunkData.unpack_ms += (Time.get_ticks_usec() - t0) / 1000.0
+			ChunkData.unpack_count += 1
 		return pal[blocks[(ly << 8) | (lz << 4) | lx]]
 
 
