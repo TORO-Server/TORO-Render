@@ -22,6 +22,7 @@ x-watch: &watch
   cpu_shares: 32
   mem_limit: 1536m
   pids_limit: 256
+  environment: [USER=watch, HOME=/tmp]   # pymysql asks for a user name; the uid has no passwd entry
   volumes:
     - ./data:/data:ro
     - ./state:/state

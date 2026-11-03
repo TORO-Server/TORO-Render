@@ -83,7 +83,7 @@ placed or broken - are the changed ones; files whose mtime did not move are not 
 neighbours are projected into tiles with the map's perspective, the 8x8 mega tiles involved are re-rendered at low priority
 on the iGPU, written with the hash skip and the zoom-out parents are rebuilt. Only runs below `--max-load`, at most
 `--max-megas` mega tiles per cycle (rest stays queued in `~/.toro-gpu-watch-<map>.json`). Walking through already saved
-terrain changes nothing on disk, so nothing is re-rendered. Unit template: `docker/toro-gpu-watch.service` (not installed).
+terrain changes nothing on disk, so nothing is re-rendered. Resident container: `docker/compose.watch.yaml` (image `ghcr.io/toro-server/toro-gpu-renderer:latest`, built by .github/workflows/image.yml on every push to main; one service per map, state in `./state`, data mounted read-only). On the server: `cd ~/gpu-renderer-lab/watch && docker compose pull && docker compose up -d`. `docker/toro-gpu-watch.service` is a host-service alternative (not installed).
 Tested on a scratch region and MapID (2 saved chunks -> 1 mega tile -> 64 tiles + 20 parents, next poll idle).
 ## Production safety
 
