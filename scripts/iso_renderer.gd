@@ -19,6 +19,9 @@ var max_y := 320
 var front_ccw_vk := false
 var verbose := false
 var probe := PackedInt32Array()
+## true: chunks are meshed by shaders/mesh_chunks.glsl; false: CPU reference mesher (scripts/mesher.gd)
+var gpu_mesh := true
+var gmesher: GpuMesher
 
 var _shader := RID()
 var _pipe_opaque := RID()
@@ -85,6 +88,10 @@ func setup(persp_: Persp, reg_: StateRegistry, tbl: BlockTable, w: WorldReader) 
 	mesher = Mesher.new(reg, table)
 	mesher.topdown = persp.inclination >= 89.9
 	mesher.tex_class = _classes
+	gmesher = GpuMesher.new()
+	gmesher.topdown = persp.inclination >= 89.9
+	if gpu_mesh and not gmesher.setup(rd, reg, table, _classes):
+		return false
 	world.chunk_cache_limit = 1500
 	return true
 
@@ -93,12 +100,10 @@ func setup(persp_: Persp, reg_: StateRegistry, tbl: BlockTable, w: WorldReader) 
 func _resample(t: int, s: int) -> PackedByteArray:
 	var src := reg.tex_rgba
 	var base := t * 1024
+	if s == 16:
+		return src.slice(base, base + 1024)
 	var out := PackedByteArray()
 	out.resize(s * s * 4)
-	if s == 16:
-		for i in 1024:
-			out[i] = src[base + i]
-		return out
 	var r := 16 / s
 	for y in s:
 		for x in s:
@@ -321,57 +326,84 @@ func render(tx0: int, ty0: int, ntx: int, nty: int) -> Array[Image]:
 		zhi = 1.0
 	var zref := (zlo + zhi) * 0.5
 	var zhalf := (zhi - zlo) * 0.5 + 4.0
-	var vf := PackedFloat32Array()
-	var vi := PackedInt32Array()
+	# map-space offset of every chunk origin (double precision here, float32 on the GPU): xyz, 0
 	var offs := PackedFloat32Array()
-	var nquads := 0
-	var trans_keys := PackedInt64Array()
-	var seq := 0
 	for c in chunks:
-		var mesh = _mesh(c.x, c.y)
-		if mesh == null or mesh["n"] == 0:
-			continue
 		var bx := c.x * 16.0
 		var bz := c.y * 16.0
 		offs.append(m[0] * bx + m[2] * bz - x0)
 		offs.append(m[3] * bx + m[5] * bz - y0)
 		offs.append(m[6] * bx + m[8] * bz - zref)
-		offs.append(float(nquads * 4))
-		var mf: PackedFloat32Array = mesh["f"]
-		for qi in mesh["trans"]:
-			var zs := 0.0
-			for v in 4:
-				var o: int = (qi * 4 + v) * 8
-				var mz: float = m[6] * (bx + mf[o]) + m[7] * mf[o + 1] + m[8] * (bz + mf[o + 2])
-				zs += mz
-			trans_keys.append(_f32_key(zs / 4.0, seq))
-			trans_keys.append(nquads + qi)
-			seq += 1
-		vf.append_array(mf)
-		vi.append_array(mesh["iv"])
-		nquads += mesh["n"]
-	timing["gather_ms"] += (Time.get_ticks_usec() - t0) / 1000.0
-	timing["quads"] += nquads
-	if probe.size() == 2:
-		_probe_pixel(probe[0], probe[1], w, h, vf, vi, offs, chunks, nquads, zref)
-	# sort translucent quads back to front (ascending map z), stable
-	var keyed := PackedInt64Array()
-	var pairs := trans_keys.size() / 2
+		offs.append(0.0)
+	var b_vf := RID()
+	var b_vi := RID()
+	var b_qc := RID()
+	var nquads := 0
 	var order := PackedInt32Array()
-	if pairs > 0:
-		var ks := PackedInt64Array()
-		ks.resize(pairs)
-		var by_seq := PackedInt32Array()
-		by_seq.resize(pairs)
-		for i in pairs:
-			ks[i] = trans_keys[i * 2]
-			by_seq[i] = trans_keys[i * 2 + 1]
-		ks.sort()
-		order.resize(pairs)
-		for i in pairs:
-			order[i] = by_seq[ks[i] & 0x7FFFFFFF]
+	if gpu_mesh:
+		var g := gmesher.mesh(world, chunks, offs, PackedFloat64Array([m[6], m[7], m[8]]), reg.water_tex, reg.lava_tex)
+		nquads = g["nquads"]
+		b_vf = g["vf"]
+		b_vi = g["vi"]
+		b_qc = g["qchunk"]
+		order = _sort_translucent(g["trans"], chunks)
+		timing["gather_ms"] += (Time.get_ticks_usec() - t0) / 1000.0
+	else:
+		var vf := PackedFloat32Array()
+		var vi := PackedInt32Array()
+		var qch := PackedInt32Array()
+		var trans_keys := PackedInt64Array()
+		var seq := 0
+		for ci in chunks.size():
+			var c := chunks[ci]
+			var mesh = _mesh(c.x, c.y)
+			if mesh == null or mesh["n"] == 0:
+				continue
+			var bx := c.x * 16.0
+			var bz := c.y * 16.0
+			var mf: PackedFloat32Array = mesh["f"]
+			for qi in mesh["trans"]:
+				var zs := 0.0  # float32 sum of float32 vertex depths, like Dynmap-GPU
+				for v in 4:
+					var o: int = (qi * 4 + v) * 8
+					zs = StateRegistry._r(zs + StateRegistry._r(m[6] * (bx + mf[o]) + m[7] * mf[o + 1] + m[8] * (bz + mf[o + 2])))
+				trans_keys.append(_f32_key(zs / 4.0, seq))
+				trans_keys.append(nquads + qi)
+				seq += 1
+			var n: int = mesh["n"]
+			var cc := PackedInt32Array()
+			cc.resize(n)
+			cc.fill(ci)
+			qch.append_array(cc)
+			vf.append_array(mf)
+			vi.append_array(mesh["iv"])
+			nquads += n
+		var pairs := trans_keys.size() / 2
+		if pairs > 0:
+			var ks := PackedInt64Array()
+			ks.resize(pairs)
+			var by_seq := PackedInt32Array()
+			by_seq.resize(pairs)
+			for i in pairs:
+				ks[i] = trans_keys[i * 2]
+				by_seq[i] = trans_keys[i * 2 + 1]
+			ks.sort()
+			order.resize(pairs)
+			for i in pairs:
+				order[i] = by_seq[ks[i] & 0x7FFFFFFF]
+		b_vf = _storage(vf.to_byte_array())
+		b_vi = _storage(vi.to_byte_array())
+		b_qc = _storage(qch.to_byte_array())
+		timing["gather_ms"] += (Time.get_ticks_usec() - t0) / 1000.0
+	timing["quads"] += nquads
+	if nquads == 0:
+		b_vf = _storage(PackedByteArray())
+		b_vi = _storage(PackedByteArray())
+		b_qc = _storage(PackedByteArray())
+	if probe.size() == 2:
+		_probe_pixel(probe[0], probe[1], w, h, b_vf, b_vi, b_qc, offs, chunks, nquads)
 	var t1 := Time.get_ticks_usec()
-	var img_bytes := _draw(w, h, vf, vi, offs, order, nquads, zhalf)
+	var img_bytes := _draw(w, h, b_vf, b_vi, b_qc, offs, order, nquads, zhalf)
 	timing["gpu_ms"] += (Time.get_ticks_usec() - t1) / 1000.0
 	var full := Image.create_from_data(w, h, false, Image.FORMAT_RGBA8, img_bytes)
 	var tiles: Array[Image] = []
@@ -381,22 +413,136 @@ func render(tx0: int, ty0: int, ntx: int, nty: int) -> Array[Image]:
 	return tiles
 
 
+## Debug: meshes one chunk with both meshers and reports quads that differ (position-keyed multiset comparison).
+func compare_meshers(cx: int, cz: int) -> void:
+	var cpu = _mesh(cx, cz)
+	var offs := PackedFloat32Array([0.0, 0.0, 0.0, 0.0])
+	var g := gmesher.mesh(world, [Vector2i(cx, cz)] as Array[Vector2i], offs, PackedFloat64Array([0.0, 0.0, 0.0]), reg.water_tex, reg.lava_tex)
+	var gvf := rd.buffer_get_data(g["vf"]).to_float32_array() if g["nquads"] > 0 else PackedFloat32Array()
+	var gvi := rd.buffer_get_data(g["vi"]).to_int32_array() if g["nquads"] > 0 else PackedInt32Array()
+	var cvf: PackedFloat32Array = cpu["f"]
+	var cvi: PackedInt32Array = cpu["iv"]
+	var cn: int = cpu["n"]
+	var gn: int = g["nquads"]
+	print("chunk %d,%d: cpu %d quads, gpu %d quads" % [cx, cz, cn, gn])
+	var gmap := {}
+	for q in gn:
+		var key := _quad_key(gvf, q)
+		if not gmap.has(key):
+			gmap[key] = []
+		gmap[key].append(q)
+	var shown := 0
+	var missing := 0
+	var diff := 0
+	for q in cn:
+		var tex := cvi[q * 12] & 0xFFFF
+		if tex < _classes.size() and _classes[tex] == 0:
+			continue  # fully transparent texture: the GPU mesher skips these
+		var key := _quad_key(cvf, q)
+		if not gmap.has(key) or gmap[key].is_empty():
+			missing += 1
+			if shown < 8:
+				print("  cpu quad %d at %s missing on gpu (tex %s)" % [q, key, reg.tex_names[tex]])
+				shown += 1
+			continue
+		var found := -1
+		for gq in gmap[key]:
+			if gvi[gq * 12] == cvi[q * 12] and gvi[gq * 12 + 1] == cvi[q * 12 + 1] and gvi[gq * 12 + 2] == cvi[q * 12 + 2]:
+				found = gq
+				break
+		if found < 0:
+			diff += 1
+			var gq: int = gmap[key][0]
+			if shown < 8:
+				print("  quad %s tex %s: cpu flags %x color %06x light %05x | gpu flags %x color %06x light %05x" % [key, reg.tex_names[tex], cvi[q * 12], cvi[q * 12 + 1], cvi[q * 12 + 2], gvi[gq * 12], gvi[gq * 12 + 1], gvi[gq * 12 + 2]])
+				shown += 1
+		else:
+			gmap[key].erase(found)
+	print("  missing on gpu: %d, attribute differences: %d" % [missing, diff])
+	for r in [g["vf"], g["vi"], g["qchunk"]]:
+		if r.is_valid():
+			rd.free_rid(r)
+
+
+static func _quad_key(vf: PackedFloat32Array, q: int) -> String:
+	var o := q * 32
+	return "%.4f,%.4f,%.4f/%.4f,%.4f,%.4f" % [vf[o], vf[o + 1], vf[o + 2], vf[o + 16], vf[o + 17], vf[o + 18]]
+
+
+## Translucent quads of the GPU mesher back to front: ascending map z (float32 sum of float32 vertex depths computed in
+## double precision, as Dynmap-GPU does), ties in the CPU mesher's emission order (chunk, block y/z/x, quad ordinal).
+## tb: 16 uints per quad (see mesh_chunks.glsl note_quad).
+func _sort_translucent(tb: PackedByteArray, chunks: Array[Vector2i]) -> PackedInt32Array:
+	var n := tb.size() / 64
+	var order := PackedInt32Array()
+	if n == 0:
+		return order
+	var ints := tb.to_int32_array()
+	var fl := tb.to_float32_array()
+	var m := persp.w2m
+	var s1 := PackedFloat32Array()
+	var s2 := PackedFloat32Array()
+	var s3 := PackedFloat32Array()
+	var zv := PackedFloat32Array()  # raw float32 vertex depths, 4 per quad
+	zv.resize(n * 4)
+	for i in n:
+		var o := i * 16
+		var c := chunks[ints[o + 1]]
+		var bx := c.x * 16.0
+		var bz := c.y * 16.0
+		for v in 4:
+			var p := o + 3 + v * 3
+			zv[i * 4 + v] = m[6] * (bx + fl[p]) + m[7] * fl[p + 1] + m[8] * (bz + fl[p + 2])
+	s1.resize(n)
+	s2.resize(n)
+	s3.resize(n)
+	for i in n:
+		s1[i] = zv[i * 4] + zv[i * 4 + 1]
+	for i in n:
+		s2[i] = s1[i] + zv[i * 4 + 2]
+	for i in n:
+		s3[i] = s2[i] + zv[i * 4 + 3]
+	for i in n:
+		s3[i] = s3[i] / 4.0
+	var bits := s3.to_byte_array().to_int32_array()
+	# rank of every quad in emission order
+	var tbk := PackedInt64Array()
+	tbk.resize(n)
+	for i in n:
+		tbk[i] = (((ints[i * 16 + 1] << 24) | ints[i * 16 + 2]) << 22) | i
+	tbk.sort()
+	var rank := PackedInt32Array()
+	rank.resize(n)
+	for r in n:
+		rank[tbk[r] & 0x3FFFFF] = r
+	var ks := PackedInt64Array()
+	ks.resize(n)
+	for i in n:
+		var b: int = bits[i] & 0xFFFFFFFF
+		b = (~b & 0xFFFFFFFF) if (b & 0x80000000) != 0 else (b | 0x80000000)
+		ks[i] = (b << 31) | rank[i]
+	var by_rank := PackedInt32Array()
+	by_rank.resize(n)
+	for i in n:
+		by_rank[rank[i]] = ints[i * 16]
+	ks.sort()
+	order.resize(n)
+	for i in n:
+		order[i] = by_rank[ks[i] & 0x7FFFFFFF]
+	return order
+
+
 ## Debug: lists the quads covering pixel (px, py) (py from the top of the rendered image), nearest first.
-func _probe_pixel(px: int, py: int, w: int, h: int, vf: PackedFloat32Array, vi: PackedInt32Array, offs: PackedFloat32Array, chunks: Array[Vector2i], nquads: int, zref: float) -> void:
+func _probe_pixel(px: int, py: int, w: int, h: int, b_vf: RID, b_vi: RID, b_qc: RID, offs: PackedFloat32Array, chunks: Array[Vector2i], nquads: int) -> void:
+	var vf := rd.buffer_get_data(b_vf).to_float32_array()
+	var vi := rd.buffer_get_data(b_vi).to_int32_array()
+	var qc := rd.buffer_get_data(b_qc).to_int32_array()
 	var m := persp.w2m
 	var cx := px + 0.5
 	var cy := h - (py + 0.5)
 	var hits := []
-	var nchunk := offs.size() / 4
-	var ci := 0
-	var picked: Array[Vector2i] = []
-	for c in chunks:
-		var mesh = _meshes.get(c)
-		if mesh != null and mesh["n"] > 0:
-			picked.append(c)
 	for q in nquads:
-		while ci + 1 < nchunk and int(offs[(ci + 1) * 4 + 3]) <= q * 4:
-			ci += 1
+		var ci := qc[q]
 		var pts := []
 		for v in 4:
 			var o := (q * 4 + v) * 8
@@ -422,24 +568,23 @@ func _probe_pixel(px: int, py: int, w: int, h: int, vf: PackedFloat32Array, vi: 
 		var q: int = hits[k][1]
 		var tf := vi[q * 12]
 		var o := q * 4 * 8
-		var cc: Vector2i = picked[hits[k][2]] if hits[k][2] < picked.size() else Vector2i.ZERO
+		var cc: Vector2i = chunks[hits[k][2]]
 		var tn := reg.tex_names[tf & 0xFFFF]
 		print("  z=%.4f quad %d chunk %s block %d,%d,%d tex=%s cls=%d yeven=%d noshade=%d color=%06x light=%05x uv0=(%.3f,%.3f)" % [hits[k][0], q, cc, int(vf[o]), int(vf[o + 1]), int(vf[o + 2]), tn, (tf >> 16) & 7, (tf >> 19) & 1, (tf >> 20) & 1, vi[q * 12 + 1], vi[q * 12 + 2], vf[o + 3], vf[o + 4]])
 
 
-func _draw(w: int, h: int, vf: PackedFloat32Array, vi: PackedInt32Array, offs: PackedFloat32Array, order: PackedInt32Array, nquads: int, zhalf: float) -> PackedByteArray:
+## Rasterises the quad buffers (ownership of b_vf/b_vi/b_qc passes to this call) and returns the un-premultiplied RGBA image.
+func _draw(w: int, h: int, b_vf: RID, b_vi: RID, b_qc: RID, offs: PackedFloat32Array, order: PackedInt32Array, nquads: int, zhalf: float) -> PackedByteArray:
 	var fbd := _get_fb(w, h)
 	var u := PackedFloat32Array()
 	var mm := persp.w2m
 	u.append_array(PackedFloat32Array([mm[0], mm[1], mm[2], 0.0, mm[3], mm[4], mm[5], 0.0, mm[6], mm[7], mm[8], 0.0]))
 	u.append_array(PackedFloat32Array([float(w), float(h), -zhalf, zhalf]))
-	var ui := PackedInt32Array([persp.scale, ATLAS_COLS, offs.size() / 4, 0])
+	var ui := PackedInt32Array([persp.scale, ATLAS_COLS, 0, 0])
 	ui.append_array(_shadow)
 	var ubytes := u.to_byte_array()
 	ubytes.append_array(ui.to_byte_array())
 	var ubuf := rd.uniform_buffer_create(ubytes.size(), ubytes)
-	var b_vf := _storage(vf.to_byte_array())
-	var b_vi := _storage(vi.to_byte_array())
 	var b_off := _storage(offs.to_byte_array())
 	var b_order := _storage(order.to_byte_array())
 	var uset := rd.uniform_set_create([
@@ -449,6 +594,7 @@ func _draw(w: int, h: int, vf: PackedFloat32Array, vi: PackedInt32Array, offs: P
 		_u(RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER, 3, [b_vi]),
 		_u(RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER, 4, [b_off]),
 		_u(RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER, 5, [b_order]),
+		_u(RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER, 6, [b_qc]),
 	], _shader, 0)
 	var out_buf := rd.storage_buffer_create(w * h * 4)
 	var fin_set := rd.uniform_set_create([
@@ -474,7 +620,7 @@ func _draw(w: int, h: int, vf: PackedFloat32Array, vi: PackedInt32Array, offs: P
 	rd.submit()
 	rd.sync()
 	var bytes := rd.buffer_get_data(out_buf)
-	for r in [fin_set, uset, out_buf, b_order, b_off, b_vi, b_vf, ubuf]:
+	for r in [fin_set, uset, out_buf, b_order, b_off, b_qc, b_vi, b_vf, ubuf]:
 		rd.free_rid(r)
 	return bytes
 

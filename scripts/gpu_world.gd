@@ -9,6 +9,32 @@ static func pack(world: WorldReader, x0: int, z0: int, wb: int, hb: int) -> Dict
 	var gz0 := (z0 - 1) >> 4
 	var gx1 := (x0 + wb) >> 4
 	var gz1 := (z0 + hb) >> 4
+	return _pack_grid(world, gx0, gz0, gx1, gz1, [x0, z0, wb, hb])
+
+
+## Packs exactly the given chunks (plus nothing else): the caller lists targets and their neighbours. Chunks that are
+## not in the set are absent from the grid (the shader treats them like missing chunks).
+static func pack_set(world: WorldReader, chunks: Array[Vector2i]) -> Dictionary:
+	var gx0 := 1 << 30
+	var gz0 := 1 << 30
+	var gx1 := -(1 << 30)
+	var gz1 := -(1 << 30)
+	for c in chunks:
+		gx0 = mini(gx0, c.x)
+		gz0 = mini(gz0, c.y)
+		gx1 = maxi(gx1, c.x)
+		gz1 = maxi(gz1, c.y)
+	var want := {}
+	for c in chunks:
+		want[c] = true
+	return _pack_grid(world, gx0, gz0, gx1, gz1, [0, 0, 0, 0], want)
+
+
+static func _pack_grid(world: WorldReader, gx0: int, gz0: int, gx1: int, gz1: int, rect: Array, want: Dictionary = {}) -> Dictionary:
+	var x0: int = rect[0]
+	var z0: int = rect[1]
+	var wb: int = rect[2]
+	var hb: int = rect[3]
 	var gw := gx1 - gx0 + 1
 	var gh := gz1 - gz0 + 1
 	var grid := PackedInt32Array()
@@ -21,7 +47,9 @@ static func pack(world: WorldReader, x0: int, z0: int, wb: int, hb: int) -> Dict
 	var nchunks := 0
 	for gz in gh:
 		for gx in gw:
-			var c := world.chunk(gx0 + gx, gz0 + gz)
+			var c: ChunkData = null
+			if want.is_empty() or want.has(Vector2i(gx0 + gx, gz0 + gz)):
+				c = world.chunk(gx0 + gx, gz0 + gz)
 			if c == null:
 				grid[gz * gw + gx] = -1
 				continue
@@ -72,4 +100,7 @@ static func pack(world: WorldReader, x0: int, z0: int, wb: int, hb: int) -> Dict
 		"data": data,
 		"bytes": bytes,
 		"params": PackedInt32Array([x0, z0, wb, hb, gx0, gz0, gw, gh]).to_byte_array(),
+		"grid_origin": Vector2i(gx0, gz0),
+		"grid_size": Vector2i(gw, gh),
+		"nchunks": nchunks,
 	}

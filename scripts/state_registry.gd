@@ -88,6 +88,31 @@ func load_dir(dir: String) -> bool:
 	return true
 
 
+## Flat tables for shaders/mesh_chunks.glsl: per state 8 uints (flags, tint, block, fluid level, first quad, quad count, 0, 0),
+## quads as 20 floats (pos 4x3, uv 4x2) + 4 ints (tex, tint index, cull, normal). Rebuild when state_count() grows.
+func gpu_tables() -> Dictionary:
+	var si := PackedInt32Array()
+	var qf := PackedFloat32Array()
+	var qm := PackedInt32Array()
+	var qn := 0
+	for s in s_name.size():
+		var flags: int = s_air[s] | (s_opaque[s] << 1) | (s_solid[s] << 2) | (s_fluid[s] << 3) | (s_waterlogged[s] << 5) | (s_cull_same[s] << 6)
+		var meta: PackedInt32Array = s_qmeta[s]
+		var n := meta.size() / 5
+		si.append_array(PackedInt32Array([flags, s_tint[s], s_block[s], s_level[s], qn, n, 0, 0]))
+		qf.append_array(s_qpos[s])
+		for q in n:
+			qm.append(meta[q * 5])
+			qm.append(meta[q * 5 + 1])
+			qm.append(meta[q * 5 + 2])
+			qm.append(meta[q * 5 + 3])
+		qn += n
+	if qf.is_empty():
+		qf.resize(20)
+		qm.resize(4)
+	return {"sinfo": si.to_byte_array(), "qf": qf.to_byte_array(), "qm": qm.to_byte_array(), "count": s_name.size()}
+
+
 func tex_id(name_: String) -> int:
 	var key := _strip_ns(name_)
 	return tex_index.get(key, 0)

@@ -63,12 +63,19 @@ func _initialize() -> void:
 		iso.max_y = int(args.get("max-y", "320"))
 		iso.front_ccw_vk = args.get("flip-front", "0") == "1"
 		iso.verbose = args.get("verbose", "0") == "1"
+		iso.gpu_mesh = args.get("mesher", "gpu") != "cpu"
 		if args.has("probe"):
 			iso.probe = PackedInt32Array(Array(String(args["probe"]).split(",")).map(func(s): return int(s)))
 		if not iso.setup(persp, reg, table, world):
 			quit(1)
 			return
 		print("device: %s  driver: %s  persp: %s  setup %.0f ms" % [iso.device_name, RenderingServer.get_current_rendering_driver_name(), persp.name, (Time.get_ticks_usec() - t_start) / 1000.0])
+		if args.has("cmp-chunk"):
+			for part in String(args["cmp-chunk"]).split(";"):
+				var cc := part.split(",")
+				iso.compare_meshers(int(cc[0]), int(cc[1]))
+			quit(0)
+			return
 
 	var total_tiles := 0
 	var matched := 0
@@ -91,7 +98,9 @@ func _initialize() -> void:
 		matched += r[0]
 		compared += r[1]
 	if iso != null:
-		print("mesh %.0f ms  gather %.0f ms  gpu(raster+readback) %.0f ms  quads %d  chunks decoded %d (%.0f ms)" % [iso.timing["mesh_ms"], iso.timing["gather_ms"], iso.timing["gpu_ms"], iso.timing["quads"], world.stats["chunks"], world.stats["chunk_ms"]])
+		print("mesh(cpu) %.0f ms  gather %.0f ms  gpu(raster+readback) %.0f ms  quads %d  chunks decoded %d (%.0f ms)" % [iso.timing["mesh_ms"], iso.timing["gather_ms"], iso.timing["gpu_ms"], iso.timing["quads"], world.stats["chunks"], world.stats["chunk_ms"]])
+		if iso.gpu_mesh:
+			print("gpu mesher: pack %.0f ms, mesh %.0f ms" % [iso.gmesher.timing["pack_ms"], iso.gmesher.timing["mesh_ms"]])
 		if not iso.reg.unknown.is_empty():
 			var uk := iso.reg.unknown.keys()
 			print("unknown blockstates: ", uk.slice(0, 10))

@@ -28,12 +28,20 @@ class Section:
 	var biome_data := PackedInt32Array()  # 64 palette indices, empty = uniform
 	var biome_uniform := 0
 
-	## 64 biome ids (4x4x4 cells), y-major like the chunk format.
+	var _biome_bytes := PackedByteArray()
+
+	## 64 biome ids (4x4x4 cells), y-major like the chunk format. Cached: chunks are packed for the GPU many times.
 	func biome_bytes() -> PackedByteArray:
+		if not _biome_bytes.is_empty():
+			return _biome_bytes
 		var out := PackedByteArray()
 		out.resize(64)
-		for i in 64:
-			out[i] = biome_uniform if biome_data.is_empty() else biome_pal[biome_data[i]]
+		if biome_data.is_empty():
+			out.fill(biome_uniform)
+		else:
+			for i in 64:
+				out[i] = biome_pal[biome_data[i]]
+		_biome_bytes = out
 		return out
 
 	func block(lx: int, ly: int, lz: int) -> int:
