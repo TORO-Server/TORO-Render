@@ -1,6 +1,6 @@
 """Writes renderer output into Dynmap's TiDB tile table and rebuilds the zoom-out levels.
 
-    python tools/tiledb.py upload --map-id 60001 --dir out --zoom-max 10 [--host 127.0.0.1 --port 4000]
+    python tools/tiledb.py upload --map-id 60001 --dir out [out2 ...] --zoom-max 10 [--host 127.0.0.1 --port 4000]
                                   [--rate 8000000] [--dry-run]
 
 Rules (same as the Rust renderer Dynmap-GPU):
@@ -158,24 +158,26 @@ class Db:
                 c.execute("DELETE FROM dynmap_Tiles WHERE MapID=%s AND zoom=%s AND x=%s AND y=%s", (self.map_id, zoom, x, y))
 
 
-def load_dir(d):
-    manifest = json.load(open(os.path.join(d, "manifest.json")))
+def load_dirs(dirs):
+    """Tiles of one or more render output directories: (x, y) -> None (blank) or (rgba, hash, webp bytes)."""
     tiles = {}
-    for e in manifest:
-        x, y = e["x"], e["y"]
-        if e["blank"]:
-            tiles[(x, y)] = None
-            continue
-        png = os.path.join(d, f"{x}_{y}.png")
-        webp = os.path.join(d, f"{x}_{y}.webp")
-        img = np.array(Image.open(png).convert("RGBA"), dtype=np.uint8)
-        tiles[(x, y)] = (img, int(e["hash"]), open(webp, "rb").read())
+    for d in dirs:
+        manifest = json.load(open(os.path.join(d, "manifest.json")))
+        for e in manifest:
+            x, y = e["x"], e["y"]
+            if e["blank"]:
+                tiles[(x, y)] = None
+                continue
+            png = os.path.join(d, f"{x}_{y}.png")
+            webp = os.path.join(d, f"{x}_{y}.webp")
+            img = np.array(Image.open(png).convert("RGBA"), dtype=np.uint8)
+            tiles[(x, y)] = (img, int(e["hash"]), open(webp, "rb").read())
     return tiles
 
 
 def upload(args):
     db = Db(args.host, args.port, args.map_id, args.rate, args.dry_run)
-    tiles = load_dir(args.dir)
+    tiles = load_dirs(args.dir)
     now = int(time.time() * 1000)
     coords = list(tiles)
     existing = db.hashes(0, coords)
@@ -231,7 +233,7 @@ def main():
     sub = ap.add_subparsers(dest="cmd", required=True)
     u = sub.add_parser("upload")
     u.add_argument("--map-id", type=int, required=True)
-    u.add_argument("--dir", required=True)
+    u.add_argument("--dir", required=True, nargs="+", help="one or more render output directories")
     u.add_argument("--zoom-max", type=int, default=10)
     u.add_argument("--host", default="127.0.0.1")
     u.add_argument("--port", type=int, default=4000)

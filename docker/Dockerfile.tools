@@ -1,0 +1,5 @@
+# Python tools image (uploader / zoom-out): keeps numpy, Pillow and PyMySQL off the production host.
+FROM python:3-alpine
+RUN pip install --no-cache-dir numpy pillow pymysql
+WORKDIR /tools
+ENTRYPOINT ["python", "/tools/tiledb.py"]

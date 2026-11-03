@@ -1,11 +1,17 @@
 extends SceneTree
 ## CLI entry. Run with a display driver (not --headless), arguments after `--`:
-##   --region-dir DIR   world region directory (r.X.Z.mca)
-##   --tiles tx,ty,w,h  tile rectangle at zoom 0 (default 0,0,1,1)
-##   --out DIR          write {x}_{y}.png / .webp and manifest.json here
-##   --data-dir DIR     output of tools/build_data.py (default res://data)
-##   --repeat N         render the rectangle N times (timing only)
-##   --ref DIR          compare against reference PNGs ({x}_{y}.png) and print the pixel match
+##   --region-dir DIR      world region directory (r.X.Z.mca)
+##   --tiles tx,ty,w,h     tile rectangle(s) at zoom 0, several separated by ';' (default 0,0,1,1)
+##   --out DIR             write {x}_{y}.png / .webp and manifest.json here; with several rectangles each one
+##                         goes to DIR/r{tx}_{ty}/
+##   --data-dir DIR        output of tools/build_data.py (default res://data)
+##   --repeat N            render the (first) rectangle N times (timing only)
+##   --ref DIR             compare against reference PNGs ({x}_{y}.png) and print the pixel match
+##   --columns cpu|gpu     column builder (default gpu), --verify 1 cross-checks both
+
+var _hash_ms := 0.0
+var _webp_ms := 0.0
+
 
 func _initialize() -> void:
 	var args := _parse(OS.get_cmdline_user_args())
@@ -14,9 +20,9 @@ func _initialize() -> void:
 		push_error("--region-dir required")
 		quit(2)
 		return
-	var rect := PackedInt32Array([0, 0, 1, 1])
-	if args.has("tiles"):
-		rect = PackedInt32Array(Array(String(args["tiles"]).split(",")).map(func(s): return int(s)))
+	var rects: Array[PackedInt32Array] = []
+	for part in String(args.get("tiles", "0,0,1,1")).split(";", false):
+		rects.append(PackedInt32Array(Array(part.split(",")).map(func(s): return int(s))))
 	var out_dir: String = args.get("out", "")
 	var data_dir: String = args.get("data-dir", ProjectSettings.globalize_path("res://data"))
 	var repeat := int(args.get("repeat", "1"))
@@ -25,6 +31,7 @@ func _initialize() -> void:
 	var verify: bool = args.get("verify", "0") == "1"
 
 	var t_start := Time.get_ticks_usec()
+	print("script start at %d ms after engine start" % Time.get_ticks_msec())
 	var table := BlockTable.new()
 	if not table.load_dir(data_dir):
 		quit(1)
@@ -38,23 +45,38 @@ func _initialize() -> void:
 	renderer.verify = verify
 	print("device: %s  driver: %s  setup %.0f ms" % [renderer.device_name, RenderingServer.get_current_rendering_driver_name(), (Time.get_ticks_usec() - t_start) / 1000.0])
 
-	var tiles: Array[Image] = []
-	for i in repeat:
-		var t0 := Time.get_ticks_usec()
-		tiles = renderer.render(rect[0], rect[1], rect[2], rect[3])
-		print("render %d: %.0f ms (%d tiles)" % [i, (Time.get_ticks_usec() - t0) / 1000.0, tiles.size()])
+	var total_tiles := 0
+	var matched := 0
+	var compared := 0
+	for rect in rects:
+		var tiles: Array[Image] = []
+		for i in (repeat if rects.size() == 1 else 1):
+			var t0 := Time.get_ticks_usec()
+			tiles = renderer.render(rect[0], rect[1], rect[2], rect[3])
+			print("render rect %s: %.0f ms (%d tiles)" % [rect, (Time.get_ticks_usec() - t0) / 1000.0, tiles.size()])
+		var dir := out_dir
+		if out_dir != "" and rects.size() > 1:
+			dir = out_dir.path_join("r%d_%d" % [rect[0], rect[1]])
+		var r := _emit(tiles, rect, dir, ref_dir)
+		total_tiles += tiles.size()
+		matched += r[0]
+		compared += r[1]
 	print("cpu(columns) %.0f ms  gpu(dispatch+readback) %.0f ms  chunks decoded %d (%.0f ms)" % [renderer.cpu_ms, renderer.gpu_ms, world.stats["chunks"], world.stats["chunk_ms"]])
+	print("hash %.0f ms, webp %.0f ms, %d tiles" % [_hash_ms, _webp_ms, total_tiles])
 	if verify:
 		print("verify: %d columns differ between GPU and CPU column builders" % renderer.mismatched_columns)
-	print("section unpack: %d sections, %.0f ms" % [ChunkData.unpack_count, ChunkData.unpack_ms])
 	if not table.unknown.is_empty():
 		var keys := table.unknown.keys()
 		keys.sort_custom(func(a, b): return table.unknown[a] > table.unknown[b])
 		print("unknown blocks: ", keys.slice(0, 10))
+	if compared > 0:
+		print("pixel match vs reference: %d/%d = %.2f%%" % [matched, compared, 100.0 * matched / compared])
+	quit(0)
 
+
+## Writes the tiles of one rectangle; returns [matching pixels, compared pixels] against --ref.
+func _emit(tiles: Array[Image], rect: PackedInt32Array, out_dir: String, ref_dir: String) -> Array:
 	var manifest := []
-	var hash_ms := 0.0
-	var webp_ms := 0.0
 	var matched := 0
 	var total := 0
 	var i := 0
@@ -65,17 +87,17 @@ func _initialize() -> void:
 			var img := tiles[i]
 			i += 1
 			var data := img.get_data()
-			var t_enc := Time.get_ticks_usec()
+			var t_h := Time.get_ticks_usec()
 			var blank := TileCodec.is_blank(data)
 			var hash := 0 if blank else TileCodec.crc_hash(data)
-			hash_ms += (Time.get_ticks_usec() - t_enc) / 1000.0
+			_hash_ms += (Time.get_ticks_usec() - t_h) / 1000.0
 			var entry := {"x": x, "y": y, "blank": blank, "hash": hash}
 			if not blank and out_dir != "":
 				DirAccess.make_dir_recursive_absolute(out_dir)
 				img.save_png(out_dir.path_join("%d_%d.png" % [x, y]))
-				var t_webp := Time.get_ticks_usec()
+				var t_w := Time.get_ticks_usec()
 				var webp := TileCodec.encode_webp(img)
-				webp_ms += (Time.get_ticks_usec() - t_webp) / 1000.0
+				_webp_ms += (Time.get_ticks_usec() - t_w) / 1000.0
 				var f := FileAccess.open(out_dir.path_join("%d_%d.webp" % [x, y]), FileAccess.WRITE)
 				f.store_buffer(webp)
 				entry["webp_bytes"] = webp.size()
@@ -97,15 +119,12 @@ func _initialize() -> void:
 					total += drawn
 					entry["match"] = "%d/%d" % [same, drawn]
 			manifest.append(entry)
+	# an out dir with only blank tiles still gets a manifest so callers can tell the rectangle was processed
 	if out_dir != "":
+		DirAccess.make_dir_recursive_absolute(out_dir)
 		var mf := FileAccess.open(out_dir.path_join("manifest.json"), FileAccess.WRITE)
-		mf.store_string(JSON.stringify(manifest, "  "))
-	print("hash %.0f ms, webp %.0f ms for %d tiles" % [hash_ms, webp_ms, manifest.size()])
-	for e in manifest:
-		print(e)
-	if total > 0:
-		print("pixel match vs reference: %d/%d = %.2f%%" % [matched, total, 100.0 * matched / total])
-	quit(0)
+		mf.store_string(JSON.stringify(manifest))
+	return [matched, total]
 
 
 func _parse(argv: PackedStringArray) -> Dictionary:
