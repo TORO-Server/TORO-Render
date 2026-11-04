@@ -4,9 +4,9 @@
 
 | Item | Result |
 |---|---|
-| Host | production server, Ubuntu 26.04.1, kernel 7.0.0-42-generic, i3-12100, 8 threads, 46 GB RAM (about 11 GB available, swap 4 GB in use) |
+| Host | production game server, Ubuntu 26.04.1, kernel 7.0.0-42-generic, i3-12100, 8 threads, 46 GB RAM (about 11 GB available, swap 4 GB in use) |
 | GPU | Intel UHD Graphics 730 (Alder Lake-S GT1, `8086:4692`), bound to **i915** (`xe` is loaded but not bound) |
-| Device nodes | `/dev/dri/card0` (root:video), `/dev/dri/renderD128` (root:render, gid 993). User `serviceuser` is **not** in `render` |
+| Device nodes | `/dev/dri/card0` (root:video), `/dev/dri/renderD128` (root:render, gid 993). The service user is **not** in `render` |
 | Host packages | `mesa-vulkan-drivers` + `libvulkan1` + `libgl1-mesa-dri` 26.0.8 installed; no `vulkaninfo`, `vainfo`, Xvfb on the host |
 | Vulkan (checked in a throw-away `ubuntu:26.04` container) | Vulkan 1.4.335, `Intel(R) UHD Graphics 730 (ADL-S GT1)`, Mesa ANV 26.0.8, conformant 1.4. `maxImageDimension2D` 16384, `maxStorageBufferRange` 128 MB, shared memory 32 KB, `shaderInt64`, `shaderFloat16`. llvmpipe is listed as a second (CPU) device |
 | Container access | `docker run --device /dev/dri/renderD128 --group-add 993` is sufficient (non-root user, `--cap-drop ALL`) |
@@ -30,7 +30,7 @@ the Dockerfile verifies it with the release's `SHA512-SUMS.txt`.
 * Flat tiles rendered by a GLSL compute shader through Godot's `RenderingDevice`.
 * Accuracy against the Rust renderer (`Dynmap-GPU`, itself ~99.7% pixel-exact versus Dynmap on flat maps):
   99.85% exact pixels on 4 plain tiles, 94.9% on a 16-tile area with buildings and trees.
-* **Identical output on both GPUs**: the 4 test tiles have the same HashCode (e.g. `-8,4` = 54807240) on the RTX 3060
+* **Identical output on both GPUs**: the 4 test tiles have the same HashCodes on the RTX 3060
   and on the server's UHD 730.
 * Timing on the server iGPU (container limited to 1 CPU, lowest priority). The first version built block columns in
   GDScript (~47 ms/tile). **Column resolution now runs on the GPU** (`shaders/resolve_columns.glsl` reads the
@@ -57,8 +57,8 @@ not covered by this prototype. (Source of the format facts: BlueMap release note
 * `docker/run.sh`: `--cpus 1 --cpu-shares 32`, `nice -n 19`, `ionice -c3`, 1 GB memory, `--read-only` root,
   world mounted read-only, no capabilities, `no-new-privileges`, auto-removed.
 * World reads are limited to the region files that contain the requested tiles. Run when few players are online.
-* `tools/queue_runner.py` only renders when the proxy's `online.txt` reports 0 players (fresh) and load1 < 4.
-* TiDB writes (`tools/tiledb.py`): point lookups only, 8 MB/s default budget, hash skip, blank-tile delete. Verified
+* The `run` command only renders while nobody is online (live player feed and/or the proxy's presence file) and load1 < 4.
+* TiDB writes (`scripts/store/`): point lookups only, 8 MB/s default budget, hash skip, blank-tile delete. Verified
   end to end on scratch MapIDs 99001/99002 (rows deleted afterwards); its zoom-out matches the stored parents of
   MapID 30001 (14 of 15 sampled parents hash-identical, the 15th differs only in transparent pixels' RGB).
 
@@ -73,7 +73,7 @@ The Godot project now renders every perspective Dynmap-GPU does, from real block
 * Intel UHD 730 in the production container: an 8x8 oblique mega tile (1.14 M quads, 456 chunks) takes 1.3 s render
   (pack 0.76 s, GPU mesh 0.46 s, raster 0.05 s) plus 0.25 s hash/WebP at `nice 19`. The CPU reference mesher needs
   ~140 ms per chunk, i.e. minutes per mega tile; it is kept for verification (`--mesher cpu`, `--cmp-chunk`).
-* Driver parity (`queue_runner.py` + `tiledb.py plan|upload|zoom`): world scan with the Dynmap-GPU cache format,
+* Driver parity (the `run` command; originally a Python driver, see section 8): world scan with the Dynmap-GPU cache format,
   candidate tiles / mega tiles (840,035 tiles for flat/t, identical to Dynmap-GPU), `--only-missing`, `--count-missing`,
   `--zoom-all`, `--zoom-since`, `--bbox`, `--limit`, `--skip-megas`, resume state, deferred zoom-out. Verified on scratch
   MapID 99001 on the server (rows deleted afterwards).
@@ -83,6 +83,23 @@ The Godot project now renders every perspective Dynmap-GPU does, from real block
 ## 7. Open items
 
 * Entity blocks, `uvlock` (neither is drawn by Dynmap-GPU either).
-* No production map has been written by this renderer yet (only scratch MapIDs); `flat/t` and `main/t` were filled by
-  Dynmap-GPU on the RTX 5050. Re-rendering a map with `--only-missing` first is the safe way to start.
+* `flat/t` and `main/t` were filled by Dynmap-GPU; the resident `watch` command only re-renders where the server saved chunks.
+  Starting a full fill with `--count-missing` and then `--only-missing` is the safe way.
 * NBT parsing is GDScript (~1.7 ms/chunk) and is now the largest cost; a native module would remove it.
+
+## 8. Update: one runtime, no Python
+
+Planner, tile store (a small MySQL client over `StreamPeerTCP`), zoom-out (a compute shader), the whole-map job, the
+resident updater and the asset extraction from the client jar are GDScript now; `scripts/main.gd` is the single entry
+point and the image no longer contains Python. Parity checks against the Python implementation that this replaced:
+
+* `build-data` output is byte-identical (blocks, atlas, biomes, textures, block defaults; 4171 raw asset files).
+* Plan for the flat world: 403,076 chunks -> 840,035 tiles / 14,289 mega tiles, same as the Python planner.
+* Upload + zoom-out of two mega tiles (181 rows over zoom 0-5): every HashCode and every visible pixel equal to what the
+  Python uploader produced. A second run changes nothing; `--zoom-all` finds every parent consistent.
+* The zoom shader equals its CPU reference on random tiles, and a stored production parent is reproduced bit for bit from
+  its stored children.
+
+Found on the way: `TileCodec.crc_hash` used a signed 32-bit table and returned non-standard HashCodes (they did not equal
+zlib's CRC32 over the same bytes). Fixed; tiles written before the fix carry the old value and are rewritten once, with
+identical pixels, the next time they are rendered.

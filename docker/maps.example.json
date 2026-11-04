@@ -1,0 +1,10 @@
+{
+  "db": { "host": "127.0.0.1", "port": 4000, "user": "root", "database": "dynmap" },
+  "live": "wss://map.example.net/up/ws",
+  "maps": [
+    { "id": 1, "region": "/worlds/overworld/region", "persp": "iso_SE_30_hires", "zoom_max": 12 },
+    { "id": 2, "region": "/worlds/overworld/region", "persp": "iso_S_90_lowres", "zoom_max": 12 },
+    { "id": 30001, "region": "/worlds/flat/region", "persp": "iso_S_90_lowres", "zoom_max": 7 },
+    { "id": 30002, "region": "/worlds/flat/region", "persp": "iso_SE_30_hires", "zoom_max": 7 }
+  ]
+}

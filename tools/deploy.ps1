@@ -1,6 +1,7 @@
-# Ships the working tree (and data/) to the server lab directory and rebuilds the image at low priority.
+# Ships the working tree (and data/) to a lab directory on the server and rebuilds the image there at low priority.
+#   tools\deploy.ps1 -Server user@host -Port 22
 param(
-    [string] $Server = "user@host",
+    [Parameter(Mandatory)] [string] $Server,
     [int] $Port = 22,
     [string] $Lab = "gpu-renderer-lab",
     [switch] $NoData

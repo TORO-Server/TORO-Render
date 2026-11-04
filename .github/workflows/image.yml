@@ -1,6 +1,6 @@
 name: image
 
-# Builds the renderer / updater image and publishes it to GHCR (private package of this repository's owner):
+# Builds the renderer / updater image and publishes it to GHCR:
 #   ghcr.io/toro-server/toro-gpu-renderer:latest and :<commit sha>
 on:
   push:
@@ -9,7 +9,6 @@ on:
       - "project.godot"
       - "scripts/**"
       - "shaders/**"
-      - "tools/**"
       - "docker/**"
       - ".github/workflows/image.yml"
   workflow_dispatch:

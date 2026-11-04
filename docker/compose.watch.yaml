@@ -1,70 +1,32 @@
-# Resident map updaters (tools/auto_update.py), one container per Dynmap map. Separate compose project: it does not touch
-# the game stack. On the server:
-#   cd ~/gpu-renderer-lab/watch && docker compose pull && docker compose up -d
-# Needs next to this file: data/ (tools/build_data.py + build_assets.py output) and state/ (writable, keeps the "since" time
-# so changes made while a container was down are still picked up).
+# Resident map updater: ONE container for every map listed in ./maps.json (shape: docker/maps.example.json).
+# Separate compose project, it does not touch the game stack:
+#   cd <dir with this file> && docker compose pull && docker compose up -d
+# Needs next to this file: data/ (output of `build-data`), maps.json, state/ (writable: keeps what was seen and queued).
 #
-# The container is unprivileged: read-only root, no capabilities, 1 CPU at the lowest share, only the iGPU render node,
-# world directories mounted read-only. It renders only below --max-load and at most --max-megas mega tiles per cycle.
-x-watch: &watch
-  image: ghcr.io/toro-server/toro-gpu-renderer:latest
-  entrypoint: ["python3", "/app/tools/auto_update.py", "--local"]
-  network_mode: host            # TiDB is published on 127.0.0.1:4000
-  restart: unless-stopped
-  user: "1002:1002"
-  group_add: ["993", "1001"]    # render (iGPU), gameserver (world files)
-  devices: ["/dev/dri/renderD128"]
-  read_only: true
-  tmpfs: ["/tmp:size=768m,exec"]
-  cap_drop: [ALL]
-  security_opt: ["no-new-privileges:true"]
-  cpus: 1.0
-  cpu_shares: 32
-  mem_limit: 1536m
-  pids_limit: 256
-  environment: [USER=watch, HOME=/tmp]   # pymysql asks for a user name; the uid has no passwd entry
-  volumes:
-    - ./data:/data:ro
-    - ./state:/state
-
+# Unprivileged: read-only root, no capabilities, 1 CPU at the lowest share, only the iGPU render node, world directories
+# read-only. Renders only below --max-load, at most --max-megas mega tiles per batch, closest to a player first.
 services:
-  watch-flat-t:        # MapID 30002 flat/t
-    <<: *watch
-    command: ["--map-id", "30002", "--persp", "iso_SE_30_hires", "--zoom-max", "7", "--data-dir", "/data",
-              "--world-dir", "/world", "--state", "/state/30002.json", "--work-dir", "/tmp/work"]
+  watch:
+    image: ghcr.io/toro-server/toro-gpu-renderer:latest
+    command: ["watch", "--config", "/config/maps.json", "--state-dir", "/state"]
+    network_mode: host            # the database is published on 127.0.0.1:4000
+    restart: unless-stopped
+    user: "1002:1002"             # any uid that may use the render node
+    group_add: ["993", "1001"]    # gid of `render` (iGPU), gid that may read the world files
+    devices: ["/dev/dri/renderD128"]
+    read_only: true
+    tmpfs: ["/tmp:size=512m,exec"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    cpus: 1.0
+    cpu_shares: 32
+    mem_limit: 1536m
+    pids_limit: 256
+    environment:
+      HOME: /tmp
+      # DYNMAP_DB_PASSWORD: ...   # only when the database user has a password
     volumes:
       - ./data:/data:ro
+      - ./maps.json:/config/maps.json:ro
       - ./state:/state
-      - /srv/minecraft/worlds/flat/region:/world:ro
-  watch-flat-flat:     # MapID 30001 flat/flat
-    <<: *watch
-    command: ["--map-id", "30001", "--persp", "iso_S_90_lowres", "--zoom-max", "7", "--data-dir", "/data",
-              "--world-dir", "/world", "--state", "/state/30001.json", "--work-dir", "/tmp/work"]
-    volumes:
-      - ./data:/data:ro
-      - ./state:/state
-      - /srv/minecraft/worlds/flat/region:/world:ro
-  watch-main-t:        # MapID 1 main/t
-    <<: *watch
-    command: ["--map-id", "1", "--persp", "iso_SE_30_hires", "--zoom-max", "12", "--data-dir", "/data",
-              "--world-dir", "/world", "--state", "/state/1.json", "--work-dir", "/tmp/work"]
-    volumes:
-      - ./data:/data:ro
-      - ./state:/state
-      - /srv/minecraft/worlds/overworld/region:/world:ro
-  watch-main-flat:     # MapID 2 main/flat
-    <<: *watch
-    command: ["--map-id", "2", "--persp", "iso_S_90_lowres", "--zoom-max", "12", "--data-dir", "/data",
-              "--world-dir", "/world", "--state", "/state/2.json", "--work-dir", "/tmp/work"]
-    volumes:
-      - ./data:/data:ro
-      - ./state:/state
-      - /srv/minecraft/worlds/overworld/region:/world:ro
-  watch-map-flat:      # MapID 60001 map/flat
-    <<: *watch
-    command: ["--map-id", "60001", "--persp", "iso_S_90_lowres", "--zoom-max", "10", "--data-dir", "/data",
-              "--world-dir", "/world", "--state", "/state/60001.json", "--work-dir", "/tmp/work"]
-    volumes:
-      - ./data:/data:ro
-      - ./state:/state
-      - /srv/minecraft/worlds/map/region:/world:ro
+      - /srv/minecraft/worlds:/worlds:ro      # the directory holding the region folders named in maps.json
