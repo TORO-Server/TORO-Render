@@ -1,38 +1,74 @@
 name: image
 
-# Builds the renderer / updater image and publishes it to GHCR:
-#   ghcr.io/toro-server/toro-renderer:latest and :<commit sha>
+# Builds the renderer / updater image. A pull request stops after the checks; main publishes to GHCR:
+#   ghcr.io/toro-server/toro-renderer:<commit sha>   (what compose pins)
+#   ghcr.io/toro-server/toro-renderer:latest
 on:
   push:
     branches: [main]
-    paths:
+    paths: &paths
       - "project.godot"
+      - "export_presets.cfg"
       - "scripts/**"
       - "shaders/**"
       - "docker/**"
       - ".github/workflows/image.yml"
+  pull_request:
+    paths: *paths
   workflow_dispatch:
 
 permissions:
   contents: read
-  packages: write
 
 concurrency:
-  group: image
+  group: image-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
+      - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4
+        if: github.event_name != 'pull_request'
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - uses: docker/build-push-action@v6
+
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: docker/Dockerfile
+          load: true
+          tags: local/toro-renderer:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # The runner has no GPU, so rendering itself is checked on a machine that has one. Here: every program and
+      # every library loaded with dlopen resolves its dependencies, and the exported scripts load from the .pck.
+      - name: Check the image
+        run: |
+          lib=/usr/lib/x86_64-linux-gnu
+          for f in /usr/local/bin/godot /usr/bin/cage /usr/bin/Xwayland $lib/libvulkan_intel.so $lib/libEGL_mesa.so.0 $lib/gbm/dri_gbm.so; do
+            echo "--- $f"
+            out=$(docker run --rm --entrypoint /lib64/ld-linux-x86-64.so.2 local/toro-renderer:ci --list "$f")
+            if echo "$out" | grep 'not found'; then exit 1; fi
+          done
+          docker run --rm --entrypoint /bin/sh local/toro-renderer:ci -c 'mkdir -p /tmp/x && nice -n 19 ionice -c3 mkdir -p /tmp/y'
+          out=$(docker run --rm --read-only --tmpfs /tmp:exec --entrypoint /usr/local/bin/godot local/toro-renderer:ci \
+            --headless --main-pack /app/renderer.pck -s res://scripts/main.gd -- help 2>&1 || true)
+          echo "$out"
+          echo "$out" | grep -q 'usage: main.gd'
+          size=$(docker image inspect local/toro-renderer:ci --format '{{.Size}}')
+          echo "toro-renderer: $((size / 1048576)) MiB" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        if: github.event_name != 'pull_request'
         with:
           context: .
           file: docker/Dockerfile
