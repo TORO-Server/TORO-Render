@@ -65,4 +65,5 @@ mkdir -p "$root/tmp"
 chmod 1777 "$root/tmp"
 
 # ld.so finds the libraries by name without a search of every directory.
+mkdir -p "$root/etc"
 ldconfig -r "$root"
