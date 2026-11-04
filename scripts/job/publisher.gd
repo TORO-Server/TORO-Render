@@ -1,6 +1,6 @@
 class_name Publisher
 extends RefCounted
-## Writes rendered zoom-0 tiles to the tile table with Dynmap-GPU's rules (driver.rs):
+## Writes rendered zoom-0 tiles to the tile table with these rules:
 ##  * a tile is wanted when it is a candidate (inside the planned set) or already has a row; with only_missing, when it is
 ##    a candidate without a row;
 ##  * an unchanged HashCode is skipped, a blank tile deletes an existing row.

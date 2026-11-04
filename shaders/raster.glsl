@@ -1,7 +1,7 @@
 #[vertex]
 #version 450
 
-// Orthographic raster of baked quads with Dynmap-style shading (port of Dynmap-GPU tile.wgsl).
+// Orthographic raster of baked quads with Dynmap-style shading.
 // Vertices are pulled from storage buffers: 6 vertices per quad, optionally through a sorted quad order.
 
 layout(constant_id = 0) const bool TRANS = false;

@@ -1,7 +1,7 @@
 class_name ScanCache
 extends RefCounted
 ## World scan: (cx, cz, min_y, max_y) of the non-air content of every full chunk. The file is the little-endian int32
-## cache format shared with Dynmap-GPU, so caches made by either renderer can be reused.
+## cache format: four int32 per chunk.
 
 var quads := PackedInt32Array()
 

@@ -5,9 +5,8 @@ Godot 4.7 の単一プロジェクトで、処理は GDScript、重い計算は 
 Minecraft の Anvil ワールドを読み、ブロックモデルをそのままラスタライズして、Dynmap の TiDB タイル表
 （`dynmap_Tiles`）へ zoom-out レベルまで含めて書き込む。
 
-- Dynmap-GPU（Rust 製）が対応する全ての視点を描画できる: `iso_S_90_lowres` / `iso_S_90_hires` /
+- Dynmap の標準的な 4 つの視点を描画できる: `iso_S_90_lowres` / `iso_S_90_hires` /
   `iso_SE_30_lowres` / `iso_SE_30_hires`
-- Dynmap-GPU との一致率は、平面視点で 100.00%、斜め視点で 99.99% 以上（残りは GPU 違いによるブレンドの丸め）
 - Python は不要。計画・DB・zoom-out・常駐更新・アセット抽出まで全て GDScript（`scripts/main.gd` が唯一の入口）
 
 ## クイックスタート
@@ -30,7 +29,7 @@ godot --path . -s scripts/main.gd -- <コマンド> [--オプション 値] [--�
 
 | コマンド | 内容 |
 | --- | --- |
-| `render` | タイル矩形を PNG / ロスレス WebP / `manifest.json` へ出力（デバッグ、Dynmap-GPU との比較） |
+| `render` | タイル矩形を PNG / ロスレス WebP / `manifest.json` へ出力（デバッグ、参照画像との比較） |
 | `scan` | ワールドのスキャンキャッシュ（非空チャンクごとの `cx, cz, min_y, max_y`）を作る |
 | `run` | マップ全体のジョブ: スキャン、計画、描画、アップロード、zoom-out 再構築。中断・再開できる |
 | `watch` | 常駐更新。サーバーが保存したチャンクの周辺だけを再描画する。プレイヤーに近い場所を優先 |
@@ -52,7 +51,7 @@ scripts/job/        RendererPool、Publisher、RunJob、WatchJob、Gate（静穏
 scripts/cmd/        各コマンドの実装
 shaders/            mesh_chunks（メッシャー）、raster、finish（非乗算化）、zoom（2x2 平均）
 docker/             Dockerfile、起動スクリプト、compose、設定例
-tools/              PowerShell の補助スクリプト（ローカル実行、Dynmap-GPU との比較、デプロイ）
+tools/              PowerShell の補助スクリプト（ローカル実行、デプロイ）
 docs/               詳細な文書
 ```
 
@@ -67,10 +66,10 @@ docs/               詳細な文書
 
 ## 既知の差異
 
-- エンティティブロック（チェスト、ベッド、看板、旗、頭）と `uvlock` は描かない（Dynmap-GPU と同じ）
+- エンティティブロック（チェスト、ベッド、看板、旗、頭）と `uvlock` は描かない
 - GPU の違いで、半透明の縁や同一平面の葉など、16k ピクセル中の数ピクセルが異なる
 - `.glsl` などのインポート済みリソースは編集後に再インポートが必要: `godot --headless --path . --import`
-  （Docker ビルドと `compare-ref.ps1` は自動で行う）
+  （Docker ビルドは自動で行う）
 
 ## ライセンス
 

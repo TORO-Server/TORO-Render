@@ -11,7 +11,7 @@ extends RefCounted
 ##   biomes.json   biome name -> [grass, foliage, water] RGB ints
 ## For StateRegistry (real block models):
 ##   assets/blockstates/*.json, assets/models/block/**.json   raw definitions (parents are resolved at run time)
-##   textures.bin  count * 16*16*4 RGBA8, first animation frame, box-resampled to 16x16 like Dynmap-GPU; index 0 = checker
+##   textures.bin  count * 16*16*4 RGBA8, first animation frame, box-resampled to 16x16; index 0 = checker
 ##   textures.json texture index -> name ("block/stone")
 ##   block_defaults.json  block name -> default property values (needs --reports)
 
@@ -305,7 +305,7 @@ static func _box(px: PackedByteArray, size: int, out_size: int) -> PackedByteArr
 	return out
 
 
-## 16x16 RGBA of the first frame, empty when the texture is wider than tall (Dynmap-GPU assets.rs decode_png_16)
+## 16x16 RGBA of the first frame, empty when the texture is wider than tall
 static func _decode16(png: PackedByteArray) -> PackedByteArray:
 	var img := _load_rgba(png)
 	var w := img.get_width()

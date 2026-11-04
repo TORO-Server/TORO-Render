@@ -1,7 +1,7 @@
 #[compute]
 #version 450
 
-// Un-premultiplies the rendered image into packed RGBA8 words (Dynmap-GPU gpu.rs readback).
+// Un-premultiplies the rendered image into packed RGBA8 words.
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 

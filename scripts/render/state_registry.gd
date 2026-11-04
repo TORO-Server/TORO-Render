@@ -1,7 +1,7 @@
 class_name StateRegistry
 extends RefCounted
 ## Block state registry: interns palette entries and bakes their models into quads on demand.
-## Port of Dynmap-GPU assets.rs (model resolution + baking) and registry.rs (state classification).
+## Model resolution + baking and state classification.
 ## Data comes from `main.gd build-data` (data/assets, textures.bin/json, block_defaults.json).
 
 const DOWN := 0
@@ -302,8 +302,8 @@ func _resolve_model(name_: String) -> Variant:
 	return r
 
 
-## Rounds to float32. Baking is done with the same f32 operations as the Rust renderer so that tie-breaks on
-## 45-degree rotated quads (normal class East/West vs North/South) come out identically.
+## Rounds to float32. Baking is done with float32 operations (as Dynmap's Java code does) so that tie-breaks on
+## 45-degree rotated quads (normal class East/West vs North/South) come out the same way.
 static var _f32 := PackedFloat32Array([0.0])
 
 

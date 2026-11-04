@@ -43,7 +43,7 @@ godot --path . -s scripts/main.gd -- <コマンド> [--オプション 値] [--�
 ## `scan`
 
 `scan --region-dir DIR --out FILE`: 非空チャンクの `(cx, cz, min_y, max_y)` を int32 のリトルエンディアンで書く
-（Dynmap-GPU と同じ形式）。
+（リトルエンディアンの int32 を 4 つ並べた形式）。
 
 ## `run`
 

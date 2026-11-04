@@ -1,6 +1,6 @@
 class_name TileStore
 extends RefCounted
-## Dynmap's TiDB tile table (dynmap_Tiles) for one MapID. Rules shared with Dynmap-GPU:
+## Dynmap's TiDB tile table (dynmap_Tiles) for one MapID. Rules:
 ##  * (MapID, x, y, zoom) is the primary key and the image blobs are large: point lookups only, never scans
 ##    (all_hashes is the one explicit exception, used by --zoom-all).
 ##  * rows are Format=2 (lossless WebP in NewImage, Image NULL); a blank tile deletes its row.

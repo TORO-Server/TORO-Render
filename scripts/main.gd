@@ -2,7 +2,7 @@ extends SceneTree
 ## Single entry point of the renderer. Run under a display driver (the GPU needs one, see docker/entrypoint.sh):
 ##   godot --path . -s scripts/main.gd -- <command> [options]
 ##
-##   render      render tile rectangles to PNG/WebP files (debugging, comparison against Dynmap-GPU)
+##   render      render tile rectangles to PNG/WebP files (debugging, comparison with reference images)
 ##   scan        world scan cache (cx, cz, min_y, max_y per chunk)
 ##   run         whole-map job: plan, render and upload one map, then rebuild its zoom levels
 ##   watch       resident updater: keeps every map of a config current around the chunks the server saves

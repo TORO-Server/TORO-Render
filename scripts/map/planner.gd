@@ -1,6 +1,6 @@
 class_name Planner
 extends RefCounted
-## Which tiles and mega tiles a set of chunks touches (port of Dynmap-GPU driver.rs tile_set / megas / --only-missing).
+## Which tiles and mega tiles a set of chunks touches.
 ## Tile and mega coordinates are packed into sortable int64 keys: first coordinate in the high 32 bits, second biased by
 ## 2^31, so a sorted PackedInt64Array is ordered by (first, second).
 
@@ -74,7 +74,7 @@ static func tile_keys(scan: ScanCache, persp: Persp) -> PackedInt64Array:
 
 
 ## Floor division by `mega` of the tile keys (optionally limited to bbox tx0,ty0,tx1,ty1) -> {"keys": kept tile keys,
-## "megas": Array[Vector2i] in Dynmap-GPU order (row by row: my, then mx)}.
+## "megas": Array[Vector2i] in row order (my, then mx)}.
 static func megas_of(keys: PackedInt64Array, mega: int, bbox := PackedInt32Array()) -> Dictionary:
 	var kept := PackedInt64Array()
 	var mk := PackedInt64Array()

@@ -13,11 +13,11 @@
 ```
 
 - `state_registry.gd` は blockstate とモデル（multipart、variants、要素の回転、rescale、面の回転、x/y の状態回転）を
-  クアッドに焼く。Dynmap-GPU と同じ float32 演算で行うので、45° の植物の同点処理まで一致する。
+  クアッドに焼く。Dynmap（Java）と同じ float32 演算で行うので、45° の植物の同点処理まで合う。
 - `persp.gd` は Dynmap の `IsoHDPerspective` のワールド → マップ変換（倍精度）。計画（`Planner`）と変更検出
   （`AnvilChanges`）も同じ行列を使う。
 - 半透明クアッドは CPU で float32-of-double の距離により奥から手前へ並べ、同点は チャンク / ブロック / クアッドの順に
-  する。これで水とガラスが Dynmap-GPU と同じように混ざる。
+  する。これで水とガラスの混ざり方が毎回同じになる。
 - `mesher.gd` は CPU の参照実装（`render --mesher cpu`）。`--cmp-chunk cx,cz` で GPU メッシャーとの差分を取れる。
 - タイル `(tx,ty)`（`iso_S_90_lowres`）はブロック x が `[32*tx, 32*tx+32)`、z が `[-32*ty-32, -32*ty-1]`。
   画像の 0 行目が北端。HashCode は ARGB の整数をリトルエンディアンに並べた CRC32（Dynmap が保存する値）。
@@ -34,7 +34,7 @@
 | `scripts/map/planner.gd` | スキャン結果から候補タイルとメガタイルを求める。キーは並べ替え可能な int64 |
 | `scripts/map/anvil_changes.gd` | 領域ファイルのヘッダ（チャンクごとの最終保存時刻）から変更を検出する |
 | `scripts/job/renderer_pool.gd` | 1 つの `RenderingDevice`、ブロックモデル、ブロック表を共有し、（視点, 領域）ごとに `IsoRenderer` を持つ |
-| `scripts/job/publisher.gd` | Dynmap-GPU の規則でゼロ段のタイルを書く（候補判定、ハッシュ一致のスキップ、空タイルの削除） |
+| `scripts/job/publisher.gd` | 次の規則でゼロ段のタイルを書く（候補判定、ハッシュ一致のスキップ、空タイルの削除） |
 | `scripts/job/run_job.gd` | マップ全体のジョブ |
 | `scripts/job/watch_job.gd` | 複数マップの常駐更新 |
 | `scripts/job/gate.gd` | 描画してよいかの判定（負荷、プレイヤーの有無） |

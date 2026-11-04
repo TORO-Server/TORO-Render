@@ -1,6 +1,6 @@
 class_name RunJob
 extends RefCounted
-## Whole-map job (Dynmap-GPU's `run`): scan the world once, plan the candidate tiles and mega tiles, then for every group of
+## Whole-map job: scan the world once, plan the candidate tiles and mega tiles, then for every group of
 ## mega tiles wait until the server is quiet, render, upload zoom 0 and go on. The zoom-out levels are rebuilt once at the
 ## end from the tiles that changed. Progress lives in the state directory, so the job can be stopped and resumed any time.
 

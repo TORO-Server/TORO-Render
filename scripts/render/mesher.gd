@@ -1,6 +1,6 @@
 class_name Mesher
 extends RefCounted
-## Chunk meshing: block states -> textured quads with Dynmap-style light samples (port of Dynmap-GPU mesh.rs).
+## Chunk meshing: block states -> textured quads with Dynmap-style light samples.
 ## Reference implementation on the CPU; output layout matches what the raster pass consumes.
 ##
 ## Per quad, 4 vertices:
@@ -63,7 +63,7 @@ func _semi_light(x: int, y: int, z: int) -> int:
 	return m
 
 
-## Light level for a block position as Dynmap samples it (see mesh.rs sample_light).
+## Light level for a block position as Dynmap samples it.
 func _sample_light(sid: int, x: int, y: int, z: int, nv: Vector3i) -> int:
 	if reg.s_fluid[sid] != 0:
 		return _semi_light(x, y, z)

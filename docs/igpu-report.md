@@ -28,7 +28,7 @@ the Dockerfile verifies it with the release's `SHA512-SUMS.txt`.
 ## 3. Prototype results
 
 * Flat tiles rendered by a GLSL compute shader through Godot's `RenderingDevice`.
-* Accuracy against the Rust renderer (`Dynmap-GPU`, itself ~99.7% pixel-exact versus Dynmap on flat maps):
+* Accuracy against a reference renderer of the same maps (early prototype):
   99.85% exact pixels on 4 plain tiles, 94.9% on a 16-tile area with buildings and trees.
 * **Identical output on both GPUs**: the 4 test tiles have the same HashCodes on the RTX 3060
   and on the server's UHD 730.
@@ -38,8 +38,8 @@ the Dockerfile verifies it with the release's `SHA512-SUMS.txt`.
   GPUs. 16 tiles take ~90-107 ms cold (NBT parsing in GDScript is the rest), a whole 8x8-mega group of 256 tiles
   about 1.6 s plus 4 s container start-up. GPU dispatch + readback is ~1 ms/tile.
 * Start-up: Forward+ initialisation took 8.5 s in the container; the Mobile renderer takes 2.5 s, so it is the default.
-* Hash and lossless WebP encoding use Godot's `Image.save_webp_to_buffer(false, 1.0)`; sizes are similar to the Rust
-  encoder for plain tiles.
+* Hash and lossless WebP encoding use Godot's `Image.save_webp_to_buffer(false, 1.0)`; sizes are small
+  for plain tiles.
 
 ## 4. BlueMap
 
@@ -62,28 +62,28 @@ not covered by this prototype. (Source of the format facts: BlueMap release note
   end to end on scratch MapIDs 99001/99002 (rows deleted afterwards); its zoom-out matches the stored parents of
   MapID 30001 (14 of 15 sampled parents hash-identical, the 15th differs only in transparent pixels' RGB).
 
-## 6. Update 2026-11-04: full Dynmap-GPU feature parity
+## 6. Update 2026-11-04: all four Dynmap perspectives
 
-The Godot project now renders every perspective Dynmap-GPU does, from real block models:
+The Godot project now renders `iso_S_90_lowres/hires` and `iso_SE_30_lowres/hires` from real block models:
 
 * Mesh renderer: `state_registry.gd` (blockstates/models -> quads, float32-exact), `mesh_chunks.glsl` (GPU mesher),
   `raster.glsl` (orthographic raster, depth, Dynmap shading, translucent pass), `persp.gd` (Dynmap transform).
-* Verified against `dg-run.exe render` on the same snapshots: `iso_S_90_lowres/hires` 100.00%, `iso_SE_30_lowres/hires`
-  >= 99.99% over 8x8 mega tiles of the main and flat worlds (`tools/compare-ref.ps1`).
+* Verified against a reference renderer on the same snapshots: `iso_S_90_lowres/hires` 100.00%, `iso_SE_30_lowres/hires`
+  >= 99.99% over 8x8 mega tiles of the main and flat worlds (that reference renderer no longer exists).
 * Intel UHD 730 in the production container: an 8x8 oblique mega tile (1.14 M quads, 456 chunks) takes 1.3 s render
   (pack 0.76 s, GPU mesh 0.46 s, raster 0.05 s) plus 0.25 s hash/WebP at `nice 19`. The CPU reference mesher needs
   ~140 ms per chunk, i.e. minutes per mega tile; it is kept for verification (`--mesher cpu`, `--cmp-chunk`).
-* Driver parity (the `run` command; originally a Python driver, see section 8): world scan with the Dynmap-GPU cache format,
-  candidate tiles / mega tiles (840,035 tiles for flat/t, identical to Dynmap-GPU), `--only-missing`, `--count-missing`,
+* Driver parity (the `run` command; originally a Python driver, see section 8): world scan cache,
+  candidate tiles / mega tiles (840,035 tiles for flat/t), `--only-missing`, `--count-missing`,
   `--zoom-all`, `--zoom-since`, `--bbox`, `--limit`, `--skip-megas`, resume state, deferred zoom-out. Verified on scratch
   MapID 99001 on the server (rows deleted afterwards).
-* Differences measured on the iGPU: 22 of 16384 pixels of a forest tile differ from the RTX/Rust result
+* Differences measured on the iGPU: 22 of 16384 pixels of a forest tile differ from the RTX result
   (depth interpolation / blend rounding of a different GPU).
 
 ## 7. Open items
 
-* Entity blocks, `uvlock` (neither is drawn by Dynmap-GPU either).
-* `flat/t` and `main/t` were filled by Dynmap-GPU; the resident `watch` command only re-renders where the server saved chunks.
+* Entity blocks, `uvlock`.
+* `flat/t` and `main/t` were filled by an earlier renderer; the resident `watch` command only re-renders where the server saved chunks.
   Starting a full fill with `--count-missing` and then `--only-missing` is the safe way.
 * NBT parsing is GDScript (~1.7 ms/chunk) and is now the largest cost; a native module would remove it.
 

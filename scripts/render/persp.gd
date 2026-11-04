@@ -1,7 +1,7 @@
 class_name Persp
 extends RefCounted
-## Port of Dynmap's IsoHDPerspective world<->map transform (Dynmap-GPU persp.rs). 3x3 matrices are row-major
-## PackedFloat64Array(9); all maths in double precision like the Rust version.
+## Port of Dynmap's IsoHDPerspective world<->map transform. 3x3 matrices are row-major
+## PackedFloat64Array(9); all maths in double precision.
 
 var name := ""
 var scale := 4

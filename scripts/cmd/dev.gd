@@ -1,6 +1,6 @@
 class_name DevCmd
 extends RefCounted
-## Debugging helpers (counterparts of Dynmap-GPU's dump / column / topblocks / colblocks / encodetest). No GPU needed.
+## Debugging helpers (dump / column / topblocks / colblocks / encodetest). Most need no GPU.
 ##   dev dump        --region FILE.mca --chunk cx,cz              NBT tree of one chunk (array sizes instead of contents)
 ##   dev column      --region FILE.mca --chunk cx,cz              per-section palette size / light availability
 ##   dev topblocks   --region-dir DIR --tile tx,ty               top non-air block of every column of one iso_S_90_lowres tile

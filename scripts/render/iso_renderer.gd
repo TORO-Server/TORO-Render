@@ -1,7 +1,7 @@
 class_name IsoRenderer
 extends RefCounted
 ## Renders Dynmap tiles of any perspective (flat or oblique) by rasterising baked block-model quads on a local
-## RenderingDevice. Port of Dynmap-GPU render.rs + gpu.rs: chunk meshes -> orthographic raster with a depth buffer,
+## RenderingDevice. Chunk meshes -> orthographic raster with a depth buffer,
 ## opaque pass then back-to-front translucent pass, premultiplied blending, un-premultiplied readback.
 
 const TILE := 128
@@ -97,7 +97,7 @@ func setup(persp_: Persp, reg_: StateRegistry, tbl: BlockTable, w: WorldReader) 
 	return true
 
 
-## alpha-weighted box resample of one 16x16 RGBA texture to s x s (Dynmap-GPU assets.rs resample)
+## alpha-weighted box resample of one 16x16 RGBA texture to s x s
 func _resample(t: int, s: int) -> PackedByteArray:
 	var src := reg.tex_rgba
 	var base := t * 1024
@@ -213,7 +213,7 @@ func _make_pipeline(trans: bool) -> RID:
 	return rd.render_pipeline_create(_shader, _fb_format, RenderingDevice.INVALID_FORMAT_ID, RenderingDevice.RENDER_PRIMITIVE_TRIANGLES, rs, ms, ds, cb, 0, 0, [sc])
 
 
-## Chunks whose volume can project into the map-space rectangle (render.rs needed_chunks).
+## Chunks whose volume can project into the map-space rectangle.
 func needed_chunks(x0: float, y0: float, x1: float, y1: float) -> Array[Vector2i]:
 	var s := float(persp.scale)
 	var wxmin := INF
@@ -299,7 +299,7 @@ func _storage(bytes: PackedByteArray) -> RID:
 
 
 static func _f32_key(v: float, seq: int) -> int:
-	# sortable key of a float32 value (ties broken by seq, i.e. the stable order Rust's sort_by gives)
+	# sortable key of a float32 value (ties broken by seq, i.e. a stable order)
 	var buf := PackedByteArray()
 	buf.resize(4)
 	buf.encode_float(0, v)
@@ -371,7 +371,7 @@ func render(tx0: int, ty0: int, ntx: int, nty: int) -> Array[Image]:
 			var bz := c.y * 16.0
 			var mf: PackedFloat32Array = mesh["f"]
 			for qi in mesh["trans"]:
-				var zs := 0.0  # float32 sum of float32 vertex depths, like Dynmap-GPU
+				var zs := 0.0  # float32 sum of float32 vertex depths
 				for v in 4:
 					var o: int = (qi * 4 + v) * 8
 					zs = StateRegistry._r(zs + StateRegistry._r(m[6] * (bx + mf[o]) + m[7] * mf[o + 1] + m[8] * (bz + mf[o + 2])))
@@ -478,7 +478,7 @@ static func _quad_key(vf: PackedFloat32Array, q: int) -> String:
 
 
 ## Translucent quads of the GPU mesher back to front: ascending map z (float32 sum of float32 vertex depths computed in
-## double precision, as Dynmap-GPU does), ties in the CPU mesher's emission order (chunk, block y/z/x, quad ordinal).
+## double precision,), ties in the CPU mesher's emission order (chunk, block y/z/x, quad ordinal).
 ## tb: 16 uints per quad (see mesh_chunks.glsl note_quad).
 func _sort_translucent(tb: PackedByteArray, chunks: Array[Vector2i]) -> PackedInt32Array:
 	var n := tb.size() / 64

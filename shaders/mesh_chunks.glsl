@@ -3,7 +3,7 @@
 
 // Chunk mesher on the GPU: one invocation per block column of a target chunk. Walks the column bottom-up and emits the
 // baked quads of every block state (culling, Dynmap-style smooth light samples, biome tint, fluids) exactly like
-// scripts/mesher.gd (the CPU reference) / Dynmap-GPU mesh.rs. Two passes: emit = 0 only counts quads, emit = 1 writes them.
+// scripts/mesher.gd (the CPU reference). Two passes: emit = 0 only counts quads, emit = 1 writes them.
 // Quads of one block are contiguous; the order between blocks is unspecified (atomics), which only matters for
 // coincident faces of different blocks (none in practice).
 
@@ -171,7 +171,7 @@ int semi_light(int x, int y, int z) {
 		max(max(light_at(x + 1, y, z), light_at(x, y, z - 1)), light_at(x, y, z + 1)));
 }
 
-// Dynmap's light sample for a block position (mesh.rs sample_light): fluids the brightest neighbour, solid blocks the
+// Dynmap's light sample for a block position: fluids the brightest neighbour, solid blocks the
 // light of the face they were entered through (or of the fluid in front), everything else its own light.
 int sample_light(uint s, int x, int y, int z, ivec3 nv) {
 	if (fluid_kind(s) != 0u) {
@@ -271,7 +271,7 @@ void push_vertex(uint q, uint v, vec3 pos, vec2 uv, vec3 local, uint flags, uint
 	vi[io + 2u] = light;
 }
 
-// Translucent quads are listed for the CPU, which sorts them back to front in double precision like Dynmap-GPU does:
+// Translucent quads are listed for the CPU, which sorts them back to front in double precision:
 // 16 uints each = quad index, target index, emission order inside the chunk (block y/z/x, quad ordinal), 12 vertex floats.
 void note_quad(uint q, uint tex, vec3 p0, vec3 p1, vec3 p2, vec3 p3, int y, uint w) {
 	if ((tclass[tex] & 2u) != 0u) {
