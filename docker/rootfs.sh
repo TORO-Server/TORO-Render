@@ -11,6 +11,8 @@ programs="
 /usr/local/bin/godot
 /usr/bin/cage
 /usr/bin/Xwayland
+/usr/bin/renice
+/usr/bin/ionice
 $lib/libvulkan.so.1
 $lib/libvulkan_intel.so
 $lib/libEGL_mesa.so.0
@@ -54,10 +56,10 @@ for path in $data; do
     cp -a "$path" "$root$(dirname "$path")/"
 done
 
-# A static shell and the few commands the entry scripts use.
+# A static shell and mkdir for the entry scripts (Ubuntu's busybox has no nice; renice and ionice are copied above).
 copy /usr/bin/busybox
 mkdir -p "$root/bin"
-for applet in sh mkdir nice ionice; do
+for applet in sh mkdir; do
     ln -s /usr/bin/busybox "$root/bin/$applet"
 done
 

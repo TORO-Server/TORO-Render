@@ -59,7 +59,7 @@ jobs:
             out=$(docker run --rm --entrypoint /lib64/ld-linux-x86-64.so.2 local/toro-renderer:ci --list "$f")
             if echo "$out" | grep 'not found'; then exit 1; fi
           done
-          docker run --rm --entrypoint /bin/sh local/toro-renderer:ci -c 'mkdir -p /tmp/x && nice -n 19 ionice -c3 mkdir -p /tmp/y'
+          docker run --rm --entrypoint /bin/sh local/toro-renderer:ci -c 'mkdir -p /tmp/x && renice -n 19 -p $$ && ionice -c3 -p $$'
           out=$(docker run --rm --read-only --tmpfs /tmp:exec --entrypoint /usr/local/bin/godot local/toro-renderer:ci \
             --headless --main-pack /app/renderer.pck -s res://scripts/main.gd -- help 2>&1 || true)
           echo "$out"

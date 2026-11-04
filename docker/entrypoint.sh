@@ -14,4 +14,6 @@ export WLR_RENDERER=gles2
 export WLR_RENDER_DRM_DEVICE=${RENDER_NODE:-/dev/dri/renderD128}
 
 # lowest CPU and IO priority; the game server always wins
-exec nice -n 19 ionice -c3 cage -- /app/docker/render.sh "$@"
+renice -n 19 -p $$ > /dev/null
+ionice -c3 -p $$
+exec cage -- /app/docker/render.sh "$@"
