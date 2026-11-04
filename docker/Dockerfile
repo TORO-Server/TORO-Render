@@ -21,7 +21,7 @@ RUN set -eux; \
     grep -E " ($editor|$templates)\$" SHA512-SUMS.txt | sha512sum -c -; \
     unzip -q "$editor"; \
     mv "Godot_v${GODOT_VERSION}_linux.x86_64" /usr/local/bin/godot; \
-    mkdir -p /out/usr/local/bin /out/app; \
+    mkdir -p /out/usr/local/bin; \
     unzip -p "$templates" templates/linux_release.x86_64 > /out/usr/local/bin/godot; \
     chmod 755 /out/usr/local/bin/godot; \
     rm -f "$editor" "$templates" SHA512-SUMS.txt
@@ -31,8 +31,8 @@ COPY project.godot export_presets.cfg ./
 COPY shaders ./shaders
 COPY scripts ./scripts
 RUN godot --headless --path /app --import >/dev/null 2>&1; \
-    godot --headless --path /app --export-pack Linux /out/app/renderer.pck \
- && test -s /out/app/renderer.pck
+    godot --headless --path /app --export-pack Linux /out/usr/local/bin/godot.pck \
+ && test -s /out/usr/local/bin/godot.pck
 
 
 FROM ubuntu:26.04@sha256:6a06111c3b0a8600feadb270aec771dc239bf407b25625f93f44ab00e11f4d3c AS rootfs
@@ -50,7 +50,8 @@ RUN sh /tmp/rootfs.sh
 
 FROM scratch
 COPY --from=rootfs /rootfs/ /
-COPY --from=pack /out/app/renderer.pck /app/renderer.pck
+# Official release templates have no --main-pack: they load the .pck named after the binary, next to the binary.
+COPY --from=pack /out/usr/local/bin/godot.pck /usr/local/bin/godot.pck
 COPY --chmod=755 docker/entrypoint.sh docker/render.sh /app/docker/
 ENV PATH=/usr/local/bin:/usr/bin:/bin HOME=/tmp
 # Runs with any uid that may use the render node; see docker/compose.watch.yaml.
