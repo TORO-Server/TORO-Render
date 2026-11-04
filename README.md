@@ -1,4 +1,4 @@
-# TORO-Render
+# TORO-Renderer
 
 内蔵 GPU（開発は Intel UHD 730 / Mesa ANV Vulkan）で動く、Dynmap 互換のマップタイルレンダラー。
 Godot 4.7 の単一プロジェクトで、処理は GDScript、重い計算は GLSL で書いている。

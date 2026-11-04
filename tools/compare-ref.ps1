@@ -7,7 +7,7 @@ param(
     [string] $Mesher = "gpu",
     [string] $Godot = "godot",
     [string] $Dg = "dg-run.exe",   # Dynmap-GPU's command line renderer
-    [string] $Work = (Join-Path $env:TEMP "toro-render-cmp"),
+    [string] $Work = (Join-Path $env:TEMP "toro-renderer-cmp"),
     [string] $DgGpu = ""             # DG_GPU adapter selector of Dynmap-GPU, empty = its default
 )
 $root = Split-Path -Parent $PSScriptRoot

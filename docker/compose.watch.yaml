@@ -7,7 +7,7 @@
 # read-only. Renders only below --max-load, at most --max-megas mega tiles per batch, closest to a player first.
 services:
   watch:
-    image: ghcr.io/toro-server/toro-render:latest
+    image: ghcr.io/toro-server/toro-renderer:latest
     command: ["watch", "--config", "/config/maps.json", "--state-dir", "/state"]
     network_mode: host            # the database is published on 127.0.0.1:4000
     restart: unless-stopped

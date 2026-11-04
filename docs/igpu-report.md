@@ -53,7 +53,7 @@ not covered by this prototype. (Source of the format facts: BlueMap release note
 ## 5. Safe operation on the production host
 
 * Image build and runs happen in Docker; the host only gets the container, a work directory
-  (`~/gpu-renderer-lab`) and the `toro-render:dev` image (~600 MB).
+  (`~/gpu-renderer-lab`) and the `toro-renderer:dev` image (~600 MB).
 * `docker/run.sh`: `--cpus 1 --cpu-shares 32`, `nice -n 19`, `ionice -c3`, 1 GB memory, `--read-only` root,
   world mounted read-only, no capabilities, `no-new-privileges`, auto-removed.
 * World reads are limited to the region files that contain the requested tiles. Run when few players are online.

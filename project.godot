@@ -6,7 +6,7 @@ config_version=5
 
 [application]
 
-config/name="TORO Render"
+config/name="TORO Renderer"
 config/features=PackedStringArray("4.7", "Forward Plus")
 
 [display]
