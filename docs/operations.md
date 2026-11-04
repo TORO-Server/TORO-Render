@@ -13,7 +13,7 @@
    ```
 3. **コンテナ**（Mesa と、画面の無い Wayland コンポジタ。下の「なぜコンテナに Wayland コンポジタがあるのか」を参照）:
    ```
-   docker build -f docker/Dockerfile -t toro-gpu-renderer:dev .
+   docker build -f docker/Dockerfile -t toro-render:dev .
    ```
    サーバーへ作業ツリーを送ってそこでビルドするなら `tools/deploy.ps1 -Server user@host -Port 22`。
    単発のジョブは `docker/run.sh` から:

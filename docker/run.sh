@@ -14,7 +14,7 @@
 #   IMAGE, CPUS, MEMORY
 set -euo pipefail
 
-IMAGE=${IMAGE:-toro-gpu-renderer:dev}
+IMAGE=${IMAGE:-toro-render:dev}
 DATA_DIR=${DATA_DIR:-$PWD/data}
 OUT_DIR=${OUT_DIR:-$PWD/out}
 STATE_DIR=${STATE_DIR:-$PWD/state}
@@ -34,7 +34,7 @@ MOUNTS=(-v "$DATA_DIR:/data:ro" -v "$OUT_DIR:/out" -v "$STATE_DIR:/state")
 GROUPS_ARGS=(--group-add "$RENDER_GID")
 for g in ${EXTRA_GROUPS:-}; do GROUPS_ARGS+=(--group-add "$g"); done
 
-exec docker run --rm --name toro-gpu-render --network "$NETWORK" \
+exec docker run --rm --name toro-render --network "$NETWORK" \
     --user "$(id -u):$(id -g)" "${GROUPS_ARGS[@]}" \
     --device /dev/dri/renderD128 \
     --cpus "${CPUS:-1}" --cpu-shares 32 --memory "${MEMORY:-1g}" --pids-limit 256 \

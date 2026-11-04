@@ -1,4 +1,4 @@
-# TORO-GPU-Renderer
+# TORO-Render
 
 内蔵 GPU（開発は Intel UHD 730 / Mesa ANV Vulkan）で動く、Dynmap 互換のマップタイルレンダラー。
 Godot 4.7 の単一プロジェクトで、処理は GDScript、重い計算は GLSL で書いている。
@@ -71,3 +71,11 @@ docs/               詳細な文書
 - GPU の違いで、半透明の縁や同一平面の葉など、16k ピクセル中の数ピクセルが異なる
 - `.glsl` などのインポート済みリソースは編集後に再インポートが必要: `godot --headless --path . --import`
   （Docker ビルドと `compare-ref.ps1` は自動で行う）
+
+## ライセンス
+
+[MIT License](LICENSE)
+
+Minecraft のアセット（テクスチャ、モデル、ブロック状態）はリポジトリに含まれない。`build-data` が、利用者が持つ
+クライアント jar から取り出す。ワールド → マップの変換式、シェーディング、タイルの形式は Dynmap（Apache License 2.0）の
+仕様に合わせて実装している。
