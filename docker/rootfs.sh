@@ -24,7 +24,7 @@ $lib/libdecor-0.so.0
 
 # Data read at run time.
 data="
-/usr/share/vulkan/icd.d/intel_icd.x86_64.json
+/usr/share/vulkan/icd.d/intel_icd.json
 /usr/share/glvnd/egl_vendor.d/50_mesa.json
 /usr/share/drirc.d
 /usr/share/xkeyboard-config-2
