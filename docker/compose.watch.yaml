@@ -44,3 +44,27 @@ services:
       - ./data:/data:ro
       - ./state:/state
       - /srv/minecraft/worlds/flat/region:/world:ro
+  watch-main-t:        # MapID 1 main/t
+    <<: *watch
+    command: ["--map-id", "1", "--persp", "iso_SE_30_hires", "--zoom-max", "12", "--data-dir", "/data",
+              "--world-dir", "/world", "--state", "/state/1.json", "--work-dir", "/tmp/work"]
+    volumes:
+      - ./data:/data:ro
+      - ./state:/state
+      - /srv/minecraft/worlds/overworld/region:/world:ro
+  watch-main-flat:     # MapID 2 main/flat
+    <<: *watch
+    command: ["--map-id", "2", "--persp", "iso_S_90_lowres", "--zoom-max", "12", "--data-dir", "/data",
+              "--world-dir", "/world", "--state", "/state/2.json", "--work-dir", "/tmp/work"]
+    volumes:
+      - ./data:/data:ro
+      - ./state:/state
+      - /srv/minecraft/worlds/overworld/region:/world:ro
+  watch-map-flat:      # MapID 60001 map/flat
+    <<: *watch
+    command: ["--map-id", "60001", "--persp", "iso_S_90_lowres", "--zoom-max", "10", "--data-dir", "/data",
+              "--world-dir", "/world", "--state", "/state/60001.json", "--work-dir", "/tmp/work"]
+    volumes:
+      - ./data:/data:ro
+      - ./state:/state
+      - /srv/minecraft/worlds/map/region:/world:ro
