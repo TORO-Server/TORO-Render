@@ -309,6 +309,7 @@ static func _f32_key(v: float, seq: int) -> int:
 
 
 ## Renders tiles [tx0, tx0+ntx) x [ty0, ty0+nty); one RGBA8 Image per tile, row-major (ty then tx).
+## Empty when the area could not be drawn: not the same as blank tiles, which delete their rows.
 func render(tx0: int, ty0: int, ntx: int, nty: int) -> Array[Image]:
 	var w := ntx * TILE
 	var h := nty * TILE
@@ -350,6 +351,8 @@ func render(tx0: int, ty0: int, ntx: int, nty: int) -> Array[Image]:
 	var order := PackedInt32Array()
 	if gpu_mesh:
 		var g := gmesher.mesh(world, chunks, offs, PackedFloat64Array([m[6], m[7], m[8]]), reg.water_tex, reg.lava_tex)
+		if g.get("too_large", false):
+			return []
 		nquads = g["nquads"]
 		b_vf = g["vf"]
 		b_vi = g["vi"]

@@ -25,6 +25,15 @@ const TINT_FIXED := 0x1000000
 const DIR_VEC := [Vector3(0, -1, 0), Vector3(0, 1, 0), Vector3(0, 0, -1), Vector3(0, 0, 1), Vector3(-1, 0, 0), Vector3(1, 0, 0)]
 const DIR_NAMES := {"down": 0, "up": 1, "north": 2, "south": 3, "west": 4, "east": 5}
 
+# Palette entries come from region files. The game has about 30000 states; these limits only stop runaway growth.
+const MAX_STATES := 200_000
+const MAX_NAME_LENGTH := 128
+const MAX_PROPERTIES := 32
+const MAX_PROPERTY_LENGTH := 64
+
+## a block name, as used in the paths of data/assets: [namespace:]name
+static var _name_re := RegEx.create_from_string("^([a-z0-9_.-]+:)?[a-z0-9_/.-]+$")
+
 var data_dir := ""
 var tex_names := PackedStringArray()
 var tex_index := {}
@@ -55,6 +64,9 @@ var _defaults := {}
 var _model_cache := {}
 var _blockstates := {}
 var unknown := {}
+## palette entries turned into air because they broke the limits above
+var rejected := 0
+var max_states := MAX_STATES
 
 
 func load_dir(dir: String) -> bool:
@@ -142,8 +154,16 @@ func _add_state(full_name: String, is_air: bool) -> int:
 	return s_name.size() - 1
 
 
-## props: Dictionary of String -> String/bool/number (palette Properties). Returns the state id.
+static func valid_name(block_name: String) -> bool:
+	return block_name.length() <= MAX_NAME_LENGTH and not block_name.contains("..") and _name_re.search(block_name) != null
+
+
+## props: Dictionary of String -> String/bool/number (palette Properties). Returns the state id; air (0) for an entry
+## that is not a plausible block state.
 func intern(block_name: String, given: Dictionary) -> int:
+	if given.size() > MAX_PROPERTIES or block_name.length() > MAX_NAME_LENGTH:
+		rejected += 1
+		return 0
 	var props := {}
 	var d = _defaults.get(block_name)
 	if d != null:
@@ -151,7 +171,11 @@ func intern(block_name: String, given: Dictionary) -> int:
 			props[k] = d[k]
 	for k in given:
 		var v = given[k]
-		props[k] = v if v is String else (("true" if v else "false") if v is bool else str(v))
+		var text: String = v if v is String else (("true" if v else "false") if v is bool else str(v))
+		if String(k).length() > MAX_PROPERTY_LENGTH or text.length() > MAX_PROPERTY_LENGTH:
+			rejected += 1
+			return 0
+		props[k] = text
 	var keys := props.keys()
 	keys.sort()
 	var key := block_name
@@ -162,6 +186,9 @@ func intern(block_name: String, given: Dictionary) -> int:
 	var id = _lookup.get(key)
 	if id != null:
 		return id
+	if not valid_name(block_name) or s_name.size() >= max_states:
+		rejected += 1
+		return 0
 	var sid := _build(block_name, props)
 	_lookup[key] = sid
 	return sid

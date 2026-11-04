@@ -3,6 +3,9 @@ extends RefCounted
 ## Host side of shaders/mesh_chunks.glsl: packs the chunks around a list of target chunks, runs the two mesher passes
 ## (count, emit) and hands the quad buffers to the raster pass without leaving the GPU.
 
+## 180 bytes of buffers per quad; an 8x8 mega tile of dense terrain has about 1.1 million quads
+const MAX_QUADS := 8_000_000
+
 var rd: RenderingDevice
 var reg: StateRegistry
 var table: BlockTable
@@ -68,7 +71,8 @@ func _ensure_tables() -> void:
 
 
 ## targets: chunks to mesh; offs: vec4 per target (map offset x, y, z-relative, 0).
-## Returns {"nquads", "vf", "vi", "qchunk" (RIDs, caller frees), "trans" (bytes: 16 uints per translucent quad, see mesh_chunks.glsl)}.
+## Returns {"nquads", "vf", "vi", "qchunk" (RIDs, caller frees), "trans" (bytes: 16 uints per translucent quad, see mesh_chunks.glsl)},
+## and "too_large": true (nothing drawn) when the chunks need more than MAX_QUADS quads.
 func mesh(world: WorldReader, targets: Array[Vector2i], offs: PackedFloat32Array, row2: PackedFloat64Array, water_tex: int, lava_tex: int) -> Dictionary:
 	var out := {"nquads": 0, "vf": RID(), "vi": RID(), "qchunk": RID(), "trans": PackedByteArray()}
 	if targets.is_empty():
@@ -117,6 +121,12 @@ func mesh(world: WorldReader, targets: Array[Vector2i], offs: PackedFloat32Array
 	if nq == 0:
 		for r in temp + [b_targets, b_offs, b_counters, dummy]:
 			rd.free_rid(r)
+		return out
+	if nq > MAX_QUADS:
+		push_warning("GPU mesher: %d quads is over the limit of %d, not drawing these chunks" % [nq, MAX_QUADS])
+		for r in temp + [b_targets, b_offs, b_counters, dummy]:
+			rd.free_rid(r)
+		out["too_large"] = true
 		return out
 
 	# pass 1: emit

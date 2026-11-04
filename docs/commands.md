@@ -13,6 +13,7 @@ godot --path . -s scripts/main.gd -- <コマンド> [--オプション 値] [--�
 | --- | --- | --- |
 | `--config FILE` | `/config/maps.json`（あれば） | マップ設定 |
 | `--db-host`, `--db-port` | 設定の `db`、無ければ `127.0.0.1:4000` | データベース |
+| `--db-user` | 設定の `db.user`（既定なし） | データベースのユーザー。パスワードは環境変数かファイルから読む（[運用](operations.md)） |
 | `--rate N` | 8000000 | 書き込みと blob 読み出しで共有するバイト/秒の上限。0 で無制限 |
 | `--dry-run` |  | データベースへ書かない |
 | `--live URL` | 設定の `live` | プレイヤー位置の WebSocket。`off` で無効 |

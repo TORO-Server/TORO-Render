@@ -23,7 +23,8 @@
    ```
    `docker/run.sh` が使う環境変数: `WORLD_DIR`（`/world` に読み取り専用）、`DATA_DIR`（`/data`）、`OUT_DIR`（`/out`）、
    `STATE_DIR`（`/state`）、`CONFIG`（`/config/maps.json`）、`ONLINE_FILE`（`/online.txt`）、`EXTRA_GROUPS`、`NETWORK`、
-   `IMAGE`、`CPUS`、`MEMORY`。`run` と `zoom` では既定でホストのネットワークを使う（DB が `127.0.0.1` で公開されているため）。
+   `DB_PASSWORD_FILE`（`/run/secrets/db_password`）、`IMAGE`、`CPUS`、`MEMORY`。`run`、`zoom`、`watch` では既定で
+   `DB_NETWORK`（無ければ `minecraft-network`）の Docker ネットワークに入る。それ以外は通信なし。
 
 ## マップ設定
 
@@ -31,7 +32,7 @@
 
 ```json
 {
-  "db": { "host": "127.0.0.1", "port": 4000, "user": "root", "database": "dynmap" },
+  "db": { "host": "tidb", "port": 4000, "user": "renderer", "password_file": "/run/secrets/db_password", "database": "dynmap" },
   "live": "wss://map.example.net/up/ws",
   "maps": [
     { "id": 30002, "region": "/worlds/flat/region", "persp": "iso_SE_30_hires", "zoom_max": 7 }
@@ -41,9 +42,24 @@
 
 - `id` は Dynmap の MapID。マップの Dynmap ワールド名（`main` など）は `dynmap_Maps` から引く。
 - `persp` は 4 つの視点名のいずれか。`zoom_max` は作る zoom の段数。`mega`（既定 8）、`min_y`（-64）、`max_y`（320）も指定できる。
-- `live` を省くとプレイヤー位置を使わない。
-- DB にパスワードがある場合は環境変数 `DYNMAP_DB_PASSWORD` に入れる（設定ファイルに書かない）。
+- `live` を省くとプレイヤー位置を使わない。`wss://` だけを受け付ける（`ws://` はこのマシンの中の接続先だけ）。それ以外の URL では
+  接続せず、`run` は「プレイヤーの有無が分からない」ものとして待つ。
 - 設定ファイルは `/config/maps.json` にあれば自動で読む。それ以外は `--config FILE`。
+
+### データベースの接続先とパスワード
+
+- `db.user` は必須（既定はない）。`--db-host`、`--db-port`、`--db-user` で上書きできる。
+- パスワードは環境変数かファイルから読む。コマンドラインでは受け取らず、設定ファイルの `password` も無視する。優先順は
+  `DYNMAP_DB_PASSWORD`、`DYNMAP_DB_PASSWORD_FILE` が指すファイル、`db.password_file` が指すファイル。読めないファイルを指定した
+  場合は、パスワードなしで試さずに接続を断念する。
+- 接続は TLS を使わない。同じ Docker ネットワークの中だけで使う。
+- レンダラーに要る権限はタイルの表だけなので、専用のユーザーを作る。
+
+  ```sql
+  CREATE USER 'renderer'@'%' IDENTIFIED BY '<生成した値>';
+  GRANT SELECT, INSERT, UPDATE, DELETE ON dynmap.dynmap_Tiles TO 'renderer'@'%';
+  GRANT SELECT ON dynmap.dynmap_Maps TO 'renderer'@'%';
+  ```
 
 ## マップ全体のジョブ（`run`）
 
@@ -85,6 +101,10 @@ docker compose -f docker/compose.watch.yaml up -d
 
 レンダラーは起動したまま使い回す。歩き回っただけで保存済みの地形が変わらなければ、何も再描画しない。
 
+描き始める前に試行回数を状態ファイルへ記録し、終わったら消す。回数が残っているメガタイルは、プロセスがその途中で止まったもの
+なので、1 つずつ描き直し、3 回失敗したら待ち行列から外す（チャンクがまた変わると入り直す）。同じ場所で落ち続けて再起動を
+繰り返すことを防ぐ。データベースのエラーは数えず、制限なしに再試行する。
+
 初回の起動時は、その時点以降の変更だけを見る（`since` は起動時刻から）。停止中に起きた変更も、領域ファイルの時刻から
 拾える。
 
@@ -107,12 +127,25 @@ docker compose -f docker/compose.watch.yaml up -d
 
 ## 本番運用の安全策
 
-- コンテナ: CPU 1 個を最低の共有度で、`nice 19`、`ionice idle`、メモリ 1〜1.5 GB、ルートとワールドは読み取り専用、
-  ケーパビリティなし、一時ファイルは tmpfs（SSD へ書かない）
+- コンテナ: CPU 1 個を最低の共有度で、`nice 19`、`ionice idle`、ルートとワールドは読み取り専用、ケーパビリティなし、一時ファイルは
+  tmpfs（SSD へ書かない）。ホストのネットワークは使わず、データベースのある Docker ネットワークにだけ入る
+- メモリ: `watch` は 3 GB。内蔵 GPU のバッファが shmem としてコンテナの cgroup に計上される（描画中で約 1.2 GB、ほかに無名メモリが
+  約 400 MB）ので、1.5 GB では OOM で落ち続ける
+- 入力の検査: 領域ファイル、NBT、jar は外から来るデータとして扱う。チャンクごとの展開は 64 MiB まで、NBT の深さは 128 段まで、値は
+  200 万個まで、パレットとデータの長さも確かめる。合わないチャンクは無いものとして描き、既存のタイルは消さない
 - 負荷が上限を超える間は描画しない。`run` ではさらに、誰かがオンラインの間も待つ
 - TiDB: `(MapID,x,y,zoom) IN (...)` の点参照のみ。書き込みは `--rate`（既定 8 MB/s）で制限し、ハッシュが同じタイルは書かず、
   空のタイルは行を削除する。全レベル走査をするのは `--zoom-all` だけ
-- メモリ: 1 バッチ分の画像（メガタイル × 8 個 ≒ 数十 MB）と、チャンクキャッシュ（バッチ後に解放）だけを持つ
+- メモリ（プロセスの中）: 1 バッチ分の画像（メガタイル × 8 個 ≒ 数十 MB）と、チャンクキャッシュ（バッチ後に解放）だけを持つ
+
+## 試験
+
+GPU の要らない部分（ファイルの解析、設定、待ち行列）は `tests/run_tests.gd` で確かめる。GitHub Actions の `test` でも動く。
+
+```
+godot --headless --path . --import
+godot --headless --path . -s tests/run_tests.gd
+```
 
 ## なぜコンテナに Wayland コンポジタがあるのか
 

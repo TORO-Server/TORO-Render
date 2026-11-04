@@ -43,6 +43,7 @@ func renderer(persp_name: String, region_dir: String) -> IsoRenderer:
 
 
 ## Renders each mega tile (mega x mega tiles) -> Vector2i -> null (blank) or {"img": Image, "hash": int}.
+## A mega tile that could not be drawn adds nothing, so its existing rows stay as they are.
 func render_megas(iso: IsoRenderer, megas: Array[Vector2i], mega: int, min_y: int, max_y: int) -> Dictionary:
 	var tiles := {}
 	iso.min_y = min_y
@@ -50,6 +51,8 @@ func render_megas(iso: IsoRenderer, megas: Array[Vector2i], mega: int, min_y: in
 	for m in megas:
 		iso.next_generation()
 		var images := iso.render(m.x * mega, m.y * mega, mega, mega)
+		if images.is_empty():
+			continue
 		var i := 0
 		for ty in mega:
 			for tx in mega:

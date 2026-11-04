@@ -57,6 +57,11 @@ static func _pack_grid(world: WorldReader, gx0: int, gz0: int, gx1: int, gz1: in
 					continue
 				var pal_off := pal.size()
 				pal.append_array(s.pal)
+				# the shader adds an index of `bits` bits to pal_off without a check: keep every such index inside this
+				# section's palette (padding reads as state 0, air), however the block data was written
+				if s.bits > 0:
+					for _i in (1 << s.bits) - s.pal.size():
+						pal.append(0)
 				var data_off := -1
 				if not s.raw_data.is_empty():
 					data_off = data.size() / 4

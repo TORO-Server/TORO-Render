@@ -1,7 +1,8 @@
 # Resident map updater: ONE container for every map listed in ./maps.json (shape: docker/maps.example.json).
 # Separate compose project, it does not touch the game stack:
 #   cd <dir with this file> && docker compose pull && docker compose up -d
-# Needs next to this file: data/ (output of `build-data`), maps.json, state/ (writable: keeps what was seen and queued).
+# Needs next to this file: data/ (output of `build-data`), maps.json, state/ (writable: keeps what was seen and queued),
+# db_password (the database user's password, readable by the uid below and nobody else).
 #
 # Unprivileged: read-only root, no capabilities, 1 CPU at the lowest share, only the iGPU render node, world directories
 # read-only. Renders only below --max-load, at most --max-megas mega tiles per batch, closest to a player first.
@@ -9,7 +10,7 @@ services:
   watch:
     image: ghcr.io/toro-server/toro-renderer:latest
     command: ["watch", "--config", "/config/maps.json", "--state-dir", "/state"]
-    network_mode: host            # the database is published on 127.0.0.1:4000
+    networks: [database]
     restart: unless-stopped
     user: "1002:1002"             # any uid that may use the render node
     group_add: ["993", "1001"]    # gid of `render` (iGPU), gid that may read the world files
@@ -20,13 +21,26 @@ services:
     security_opt: ["no-new-privileges:true"]
     cpus: 1.0
     cpu_shares: 32
-    mem_limit: 1536m
+    # The kernel charges the iGPU's buffers to this cgroup as shmem: about 1.2 GB while drawing, on top of about 400 MB of
+    # anonymous memory. A limit below that total gets the container OOM-killed over and over (every 70 s or so at 1536m).
+    mem_limit: 3g
     pids_limit: 256
     environment:
       HOME: /tmp
-      # DYNMAP_DB_PASSWORD: ...   # only when the database user has a password
+    secrets: [db_password]
     volumes:
       - ./data:/data:ro
       - ./maps.json:/config/maps.json:ro
       - ./state:/state
       - /srv/minecraft/worlds:/worlds:ro      # the directory holding the region folders named in maps.json
+
+networks:
+  # An existing Docker network where the database answers as "tidb" (see "db" in maps.json).
+  # Named by the game stack's compose file; set DB_NETWORK if yours differs.
+  database:
+    external: true
+    name: ${DB_NETWORK:-minecraft-network}
+
+secrets:
+  db_password:
+    file: ./db_password

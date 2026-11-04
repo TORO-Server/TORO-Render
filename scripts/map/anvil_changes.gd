@@ -16,8 +16,8 @@ func changed_since(region_dir: String, since: float) -> Array[Vector2i]:
 	var out: Array[Vector2i] = []
 	var now := Time.get_unix_time_from_system()
 	for f in DirAccess.get_files_at(region_dir):
-		var p := f.split(".")
-		if p.size() != 4 or p[0] != "r" or p[3] != "mca" or not p[1].is_valid_int() or not p[2].is_valid_int():
+		var rc := WorldReader.region_coords(f)
+		if rc.is_empty():
 			continue
 		var path := region_dir.path_join(f)
 		var mt := FileAccess.get_modified_time(path)
@@ -34,8 +34,8 @@ func changed_since(region_dir: String, since: float) -> Array[Vector2i]:
 		fh.close()
 		if head.size() < 8192:
 			continue
-		var rx := int(p[1])
-		var rz := int(p[2])
+		var rx: int = rc[0]
+		var rz: int = rc[1]
 		for i in 1024:
 			var o := 4096 + i * 4
 			var ts := (head[o] << 24) | (head[o + 1] << 16) | (head[o + 2] << 8) | head[o + 3]
