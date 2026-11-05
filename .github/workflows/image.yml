@@ -27,6 +27,7 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: read
       packages: write
@@ -60,7 +61,7 @@ jobs:
             if echo "$out" | grep 'not found'; then exit 1; fi
           done
           docker run --rm --entrypoint /bin/sh local/toro-renderer:ci -c 'mkdir -p /tmp/x && renice -n 19 -p $$ && ionice -c3 -p $$'
-          out=$(docker run --rm --read-only --tmpfs /tmp:exec --entrypoint /usr/local/bin/godot local/toro-renderer:ci \
+          out=$(timeout 60 docker run --rm --read-only --tmpfs /tmp:exec --entrypoint /usr/local/bin/godot local/toro-renderer:ci \
             --headless -s res://scripts/main.gd -- help 2>&1 || true)
           echo "$out"
           echo "$out" | grep -q 'usage: main.gd'
