@@ -52,17 +52,20 @@ jobs:
 
       # The runner has no GPU, so rendering itself is checked on a machine that has one. Here: every program and
       # every library loaded with dlopen resolves its dependencies, and the exported scripts load from the .pck.
+      # Every container gets a time limit, so a program that does not finish fails the step instead of the job.
       - name: Check the image
         run: |
           lib=/usr/lib/x86_64-linux-gnu
           for f in /usr/local/bin/godot /usr/bin/cage /usr/bin/Xwayland $lib/libvulkan_intel.so $lib/libEGL_mesa.so.0 $lib/gbm/dri_gbm.so; do
             echo "--- $f"
-            out=$(docker run --rm --entrypoint /lib64/ld-linux-x86-64.so.2 local/toro-renderer:ci --list "$f")
+            out=$(timeout 60 docker run --rm --entrypoint /lib64/ld-linux-x86-64.so.2 local/toro-renderer:ci --list "$f") \
+              || { echo "ld.so --list $f failed or did not finish"; exit 1; }
             if echo "$out" | grep 'not found'; then exit 1; fi
           done
-          docker run --rm --entrypoint /bin/sh local/toro-renderer:ci -c 'mkdir -p /tmp/x && renice -n 19 -p $$ && ionice -c3 -p $$'
+          timeout 60 docker run --rm --entrypoint /bin/sh local/toro-renderer:ci -c 'mkdir -p /tmp/x && renice -n 19 -p $$ && ionice -c3 -p $$'
+          # The release template ignores -s: main.gd must start as the main loop named in project.godot
           out=$(timeout 60 docker run --rm --read-only --tmpfs /tmp:exec --entrypoint /usr/local/bin/godot local/toro-renderer:ci \
-            --headless -s res://scripts/main.gd -- help 2>&1 || true)
+            --headless -- help 2>&1 || true)
           echo "$out"
           echo "$out" | grep -q 'usage: main.gd'
           size=$(docker image inspect local/toro-renderer:ci --format '{{.Size}}')

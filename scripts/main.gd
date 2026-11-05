@@ -1,6 +1,9 @@
+class_name RendererMain
 extends SceneTree
 ## Single entry point of the renderer. Run under a display driver (the GPU needs one, see docker/entrypoint.sh):
-##   godot --path . -s scripts/main.gd -- <command> [options]
+##   godot --path . -- <command> [options]
+## project.godot names this class in application/run/main_loop_type, because the release export template the
+## image runs ignores -s. With the editor binary, `-s scripts/main.gd` works as well.
 ##
 ##   render      render tile rectangles to PNG/WebP files (debugging, comparison with reference images)
 ##   scan        world scan cache (cx, cz, min_y, max_y per chunk)

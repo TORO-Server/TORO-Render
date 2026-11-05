@@ -27,6 +27,10 @@ tools\run-local.ps1 -Region C:\worlds\flat\region -Tiles "-8,4,2,2" -Out out -Ex
 godot --path . -s scripts/main.gd -- <コマンド> [--オプション 値] [--フラグ]
 ```
 
+コンテナで使う書き出し用テンプレート (release template) は `-s` を受け付けない。そのため `project.godot` の
+`application/run/main_loop_type` で `scripts/main.gd` (クラス名 `RendererMain`) を入口にしている。
+`godot --path . -- <コマンド>` でも同じように動く。
+
 | コマンド | 内容 |
 | --- | --- |
 | `render` | タイル矩形を PNG / ロスレス WebP / `manifest.json` へ出力（デバッグ、参照画像との比較） |
