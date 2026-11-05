@@ -29,6 +29,7 @@ godot --path . -s scripts/main.gd -- <コマンド> [--オプション 値] [--�
 
 コンテナで使う書き出し用テンプレート (release template) は `-s` を受け付けない。そのため `project.godot` の
 `application/run/main_loop_type` で `scripts/main.gd` (クラス名 `RendererMain`) を入口にしている。
+テンプレートは main scene が無いと起動しないので、空の `main.tscn` を main scene にしている。
 `godot --path . -- <コマンド>` でも同じように動く。
 
 | コマンド | 内容 |
