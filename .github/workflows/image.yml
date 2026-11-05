@@ -9,6 +9,7 @@ on:
     paths: &paths
       - "project.godot"
       - "export_presets.cfg"
+      - "main.tscn"
       - "scripts/**"
       - "shaders/**"
       - "docker/**"

@@ -27,7 +27,7 @@ RUN set -eux; \
     rm -f "$editor" "$templates" SHA512-SUMS.txt
 
 WORKDIR /app
-COPY project.godot export_presets.cfg ./
+COPY project.godot export_presets.cfg main.tscn ./
 COPY shaders ./shaders
 COPY scripts ./scripts
 RUN godot --headless --path /app --import >/dev/null 2>&1; \
