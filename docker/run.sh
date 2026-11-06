@@ -46,7 +46,7 @@ for g in ${EXTRA_GROUPS:-}; do GROUPS_ARGS+=(--group-add "$g"); done
 exec docker run --rm --name toro-renderer --network "$NETWORK" \
     --user "$(id -u):$(id -g)" "${GROUPS_ARGS[@]}" \
     --device /dev/dri/renderD128 \
-    --cpus "${CPUS:-1}" --cpu-shares 32 --memory "${MEMORY:-1g}" --pids-limit 256 \
+    --cpus "${CPUS:-1}" --cpu-shares 32 --memory "${MEMORY:-3g}" --pids-limit 256 \
     --read-only --tmpfs /tmp:size=256m,exec \
     --cap-drop ALL --security-opt no-new-privileges \
     -e GODOT_RENDERING_METHOD="${GODOT_RENDERING_METHOD:-mobile}" "${DB_ARGS[@]}" \
