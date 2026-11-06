@@ -49,9 +49,9 @@ func max_y() -> int:
 static func build(region_dir: String) -> ScanCache:
 	var c := ScanCache.new()
 	for f in DirAccess.get_files_at(region_dir):
-		var p := f.split(".")
-		if p.size() == 4 and p[0] == "r" and p[3] == "mca" and p[1].is_valid_int() and p[2].is_valid_int():
-			c._files.append([int(p[1]), int(p[2]), region_dir.path_join(f)])
+		var rc := WorldReader.region_coords(f)
+		if not rc.is_empty():
+			c._files.append([rc[0], rc[1], region_dir.path_join(f)])
 	c._files.sort()
 	c._results.resize(c._files.size())
 	var gid := WorkerThreadPool.add_group_task(c._scan_region, c._files.size(), -1, true, "scan regions")
@@ -63,7 +63,7 @@ static func build(region_dir: String) -> ScanCache:
 
 func _scan_region(i: int) -> void:
 	var info: Array = _files[i]
-	var rg := FileAccess.get_file_as_bytes(info[2])
+	var rg := WorldReader.read_region(info[2])
 	var out := PackedInt32Array()
 	if rg.size() >= 8192:
 		for lz in 32:
@@ -79,9 +79,16 @@ func _scan_region(i: int) -> void:
 					continue
 				var lo := 1 << 30
 				var hi := -(1 << 30)
-				for s in root.get("sections", []):
-					var pal: Array = s.get("block_states", {}).get("palette", [])
-					if pal.is_empty() or (pal.size() == 1 and _is_air(pal[0])):
+				var secs = root.get("sections", [])
+				if not secs is Array:
+					continue
+				for s in secs:
+					# these values size the tile ranges of the plan: anything ChunkData.decode would refuse does not count
+					if not s is Dictionary or not ChunkData.valid_section_y(s.get("Y")):
+						continue
+					var bs = s.get("block_states", {})
+					var pal = bs.get("palette", []) if bs is Dictionary else []
+					if not pal is Array or pal.is_empty() or (pal.size() == 1 and _is_air(pal[0])):
 						continue
 					var y: int = s["Y"]
 					lo = mini(lo, y * 16)

@@ -54,6 +54,9 @@ static func run(args: Args) -> int:
 			iso.next_generation()
 			tiles = iso.render(rect[0], rect[1], rect[2], rect[3])
 			print("render rect %s: %.0f ms (%d tiles)" % [rect, (Time.get_ticks_usec() - t0) / 1000.0, tiles.size()])
+		if tiles.is_empty():
+			push_error("rect %s was not drawn" % [rect])
+			continue
 		var dir := out_dir
 		if out_dir != "" and rects.size() > 1:
 			dir = out_dir.path_join("r%d_%d" % [rect[0], rect[1]])

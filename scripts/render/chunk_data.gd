@@ -1,6 +1,15 @@
 class_name ChunkData
 extends RefCounted
 ## One decoded chunk (1.18+ palette layout, 26.x quirks). Section block data is unpacked lazily.
+##
+## decode() checks what the GPU mesher later reads without bounds checks: section range, palette sizes, data array lengths.
+## A chunk that breaks these rules counts as absent.
+
+## sections of a dimension stay within this (the game allows -2032..2031 blocks)
+const MAX_SECTION_Y := 128
+## 16x16x16 blocks, 4x4x4 biome cells: a section cannot use more distinct values
+const MAX_BLOCK_PALETTE := 4096
+const MAX_BIOME_PALETTE := 64
 
 static var unpack_ms := 0.0
 static var unpack_count := 0
@@ -52,7 +61,8 @@ class Section:
 			blocks = Nbt.unpack(Nbt.longs(raw_data), bits, 4096)
 			ChunkData.unpack_ms += (Time.get_ticks_usec() - t0) / 1000.0
 			ChunkData.unpack_count += 1
-		return pal[blocks[(ly << 8) | (lz << 4) | lx]]
+		var i := blocks[(ly << 8) | (lz << 4) | lx]
+		return pal[i] if i < pal.size() else 0  # like the GPU mesher: an index past the palette is air
 
 
 static func _palette_entry(v: Variant) -> Dictionary:
@@ -79,6 +89,21 @@ static func _bits_for(n: int, minimum: int) -> int:
 	return maxi(b, minimum)
 
 
+## Bytes of a bit-packed array of `count` entries (no entry spans two longs).
+static func _packed_bytes(count: int, bits: int) -> int:
+	var per := 64 / bits
+	return (count + per - 1) / per * 8
+
+
+static func valid_section_y(y: Variant) -> bool:
+	return y is int and y >= -MAX_SECTION_Y and y <= MAX_SECTION_Y
+
+
+static func _reject(cx_: int, cz_: int, why: String) -> ChunkData:
+	push_warning("chunk %d,%d rejected: %s" % [cx_, cz_, why])
+	return null
+
+
 ## Same as decode(), but palette entries become StateRegistry state ids (full block states for the mesh renderer).
 static func decode(raw: PackedByteArray, cx_: int, cz_: int, tbl: BlockTable, reg: StateRegistry = null) -> ChunkData:
 	var root := Nbt.parse(raw)
@@ -87,8 +112,8 @@ static func decode(raw: PackedByteArray, cx_: int, cz_: int, tbl: BlockTable, re
 	var status = root.get("Status", "minecraft:full")
 	if status is String and status != "minecraft:full" and status != "full":
 		return null
-	var secs: Array = root.get("sections", [])
-	if secs.is_empty():
+	var secs = root.get("sections", [])
+	if not secs is Array or secs.is_empty():
 		return null
 	var c := ChunkData.new()
 	c.cx = cx_
@@ -97,6 +122,8 @@ static func decode(raw: PackedByteArray, cx_: int, cz_: int, tbl: BlockTable, re
 	var lo := 1000
 	var hi := -1000
 	for s in secs:
+		if not s is Dictionary or not valid_section_y(s.get("Y")):
+			return _reject(cx_, cz_, "section without a valid Y")
 		var y: int = s["Y"]
 		lo = mini(lo, y)
 		hi = maxi(hi, y)
@@ -107,8 +134,14 @@ static func decode(raw: PackedByteArray, cx_: int, cz_: int, tbl: BlockTable, re
 	for s in secs:
 		var sec := Section.new()
 		var y: int = s["Y"]
-		var bs: Dictionary = s.get("block_states", {})
-		var palette: Array = bs.get("palette", [])
+		var bs = s.get("block_states", {})
+		var bio = s.get("biomes", {})
+		if not bs is Dictionary or not bio is Dictionary:
+			return _reject(cx_, cz_, "section with malformed states")
+		var palette = bs.get("palette", [])
+		var bpal = bio.get("palette", [])
+		if not palette is Array or palette.size() > MAX_BLOCK_PALETTE or not bpal is Array or bpal.size() > MAX_BIOME_PALETTE:
+			return _reject(cx_, cz_, "section with a malformed palette")
 		sec.pal.resize(palette.size())
 		for i in palette.size():
 			var e := _palette_entry(palette[i])
@@ -124,21 +157,27 @@ static func decode(raw: PackedByteArray, cx_: int, cz_: int, tbl: BlockTable, re
 		if palette.size() <= 1 or not bs.has("data"):
 			sec.uniform = sec.pal[0] if sec.pal.size() > 0 else 0
 		else:
-			sec.raw_data = bs["data"]
 			sec.bits = _bits_for(palette.size(), 4)
-		var bio: Dictionary = s.get("biomes", {})
-		var bpal: Array = bio.get("palette", [])
+			if not bs["data"] is PackedByteArray or bs["data"].size() != _packed_bytes(4096, sec.bits):
+				return _reject(cx_, cz_, "block data of the wrong size")
+			sec.raw_data = bs["data"]
 		sec.biome_pal.resize(bpal.size())
 		for i in bpal.size():
 			sec.biome_pal[i] = tbl.biome_id(_palette_entry(bpal[i])["name"])
 		if bpal.size() > 1 and bio.has("data"):
-			sec.biome_data = Nbt.unpack(Nbt.longs(bio["data"]), _bits_for(bpal.size(), 1), 64)
+			var bbits := _bits_for(bpal.size(), 1)
+			if not bio["data"] is PackedByteArray or bio["data"].size() != _packed_bytes(64, bbits):
+				return _reject(cx_, cz_, "biome data of the wrong size")
+			sec.biome_data = Nbt.unpack(Nbt.longs(bio["data"]), bbits, 64)
+			for v in sec.biome_data:
+				if v >= bpal.size():
+					return _reject(cx_, cz_, "biome index past the palette")
 		else:
 			sec.biome_uniform = sec.biome_pal[0] if sec.biome_pal.size() > 0 else 0
-		if s.has("SkyLight") and (s["SkyLight"] as PackedByteArray).size() == 2048:
+		if s.get("SkyLight") is PackedByteArray and s["SkyLight"].size() == 2048:
 			sec.sky = s["SkyLight"]
 			top_sky = maxi(top_sky, y + 1)
-		if s.has("BlockLight") and (s["BlockLight"] as PackedByteArray).size() == 2048:
+		if s.get("BlockLight") is PackedByteArray and s["BlockLight"].size() == 2048:
 			sec.blk = s["BlockLight"]
 		c.sections[y - lo] = sec
 	c.sky_fill = top_sky

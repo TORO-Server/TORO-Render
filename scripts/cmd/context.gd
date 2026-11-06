@@ -2,7 +2,7 @@ class_name Context
 extends RefCounted
 ## What the database-backed commands (run, watch, zoom) share: config file, tile store, quiet-gate and live player feed.
 ##
-## Common options: --config FILE (default /config/maps.json when present), --db-host/--db-port, --rate BYTES/S,
+## Common options: --config FILE (default /config/maps.json when present), --db-host/--db-port/--db-user, --rate BYTES/S,
 ## --dry-run, --live URL (WebSocket of the map site, default from the config; --live off disables), --max-load N,
 ## --max-players N (< 0 ignores players), --online-file FILE, --stale-after S.
 
@@ -19,8 +19,8 @@ static func create(args_: Args, default_max_load: float, default_max_players: in
 	var cfg_path := args_.text("config", "/config/maps.json" if FileAccess.file_exists("/config/maps.json") else "")
 	c.cfg = MapDef.load_config(cfg_path)
 	var db := MapDef.db_config(args_, c.cfg)
-	if OS.get_environment("DYNMAP_DB_PASSWORD") != "":
-		db["password"] = OS.get_environment("DYNMAP_DB_PASSWORD")
+	if db.get("password", "") == "" and not db.has("error"):
+		Term.say("warning: no database password configured (DYNMAP_DB_PASSWORD or password_file)")
 	c.store.configure(db)
 	c.store.rate = args_.number("rate", 8_000_000.0)
 	c.store.dry_run = args_.flag("dry-run")

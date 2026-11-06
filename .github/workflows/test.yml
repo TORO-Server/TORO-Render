@@ -1,0 +1,62 @@
+name: test
+
+# Checks that need no GPU: file parsers, config handling, queue bookkeeping (tests/run_tests.gd) and the shell scripts.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "project.godot"
+      - "scripts/**"
+      - "tests/**"
+      - "docker/**"
+      - ".github/workflows/test.yml"
+  pull_request:
+    paths:
+      - "project.godot"
+      - "scripts/**"
+      - "tests/**"
+      - "docker/**"
+      - ".github/workflows/test.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      GODOT_VERSION: 4.7.2-stable
+      # from SHA512-SUMS.txt of the release
+      GODOT_SHA512: 9aa00f7a605200940bce3027a567b782f49bd8e940dd06ae9e987bd65aee1b1467edd56ed84fcdcbdd44354bf613bdbb4e5d2913e925850368e150c59ed54c65
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Godot
+        run: |
+          f="Godot_v${GODOT_VERSION}_linux.x86_64.zip"
+          curl -fsSL -o "$RUNNER_TEMP/$f" "https://github.com/godotengine/godot-builds/releases/download/${GODOT_VERSION}/$f"
+          echo "$GODOT_SHA512  $RUNNER_TEMP/$f" | sha512sum -c -
+          unzip -q "$RUNNER_TEMP/$f" -d "$RUNNER_TEMP"
+          mv "$RUNNER_TEMP/Godot_v${GODOT_VERSION}_linux.x86_64" "$RUNNER_TEMP/godot"
+
+      - name: Import the project
+        run: timeout 300 "$RUNNER_TEMP/godot" --headless --path . --import
+
+      - name: Run the checks
+        run: timeout 300 "$RUNNER_TEMP/godot" --headless --path . -s tests/run_tests.gd
+
+      - name: Check the shell scripts
+        run: shellcheck -S warning docker/*.sh
+
+      - name: Check the compose example
+        working-directory: docker
+        run: |
+          # the files the example expects next to it are created by the operator
+          touch db_password
+          docker compose -f compose.watch.yaml config -q

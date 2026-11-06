@@ -17,9 +17,11 @@ var error := ""
 var _db := Mysql.new()
 var _host := "127.0.0.1"
 var _port := 4000
-var _user := "root"
+## no default: the renderer only needs the tile tables, so a user has to be chosen for it (see docs/operations.md)
+var _user := ""
 var _password := ""
 var _schema := "dynmap"
+var _config_error := ""
 var _sent := 0
 var _t0 := 0
 
@@ -30,10 +32,15 @@ func configure(cfg: Dictionary) -> void:
 	_user = cfg.get("user", _user)
 	_password = cfg.get("password", _password)
 	_schema = cfg.get("database", _schema)
+	_config_error = cfg.get("error", "")
 
 
 func connect_db() -> bool:
-	error = ""
+	error = _config_error
+	if error == "" and _user == "":
+		error = 'no database user configured ("user" in the config or --db-user)'
+	if error != "":
+		return false
 	if not _db.open(_host, _port, _user, _password, _schema):
 		error = _db.error
 		return false

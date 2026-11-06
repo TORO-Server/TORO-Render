@@ -6,7 +6,8 @@ set -eu
 
 export HOME=/tmp
 export XDG_RUNTIME_DIR=/tmp/xdg
-mkdir -p -m 700 "$XDG_RUNTIME_DIR"
+mkdir -p "$XDG_RUNTIME_DIR"
+chmod 700 "$XDG_RUNTIME_DIR"
 
 export WLR_BACKENDS=headless
 export WLR_LIBINPUT_NO_DEVICES=1

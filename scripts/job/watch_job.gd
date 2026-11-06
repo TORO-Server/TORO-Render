@@ -7,6 +7,12 @@ extends RefCounted
 ##
 ## Order of work: mega tiles close to a player first (positions arrive over the WebSocket live feed), the rest in the order
 ## they were queued; anything waiting longer than --stale-after seconds goes ahead of everything else.
+##
+## A mega tile is counted as attempted (on disk) before drawing and the count is cleared afterwards, so a count that survives
+## a restart means the process died on it. Those are retried one at a time and dropped after MAX_ATTEMPTS, so one bad chunk
+## cannot keep the container in a crash loop. The tile is queued again the next time its chunks change.
+
+const MAX_ATTEMPTS := 3
 
 class MapState:
 	var def: MapDef
@@ -15,6 +21,8 @@ class MapState:
 	var since := 0.0
 	## Vector2i -> unix time it was queued
 	var pending := {}
+	## Vector2i -> times the process started drawing it without finishing
+	var attempts := {}
 	var path := ""
 
 var maps: Array[MapState] = []
@@ -46,7 +54,10 @@ func add(def: MapDef, state_dir: String) -> bool:
 		if st is Dictionary:
 			ms.since = float(st.get("since", ms.since))
 			for e in st.get("pending", []):
-				ms.pending[Vector2i(int(e[0]), int(e[1]))] = float(e[2]) if e.size() > 2 else Time.get_unix_time_from_system()
+				var m := Vector2i(int(e[0]), int(e[1]))
+				ms.pending[m] = float(e[2]) if e.size() > 2 else Time.get_unix_time_from_system()
+				if e.size() > 3 and int(e[3]) > 0:
+					ms.attempts[m] = int(e[3])
 	maps.append(ms)
 	return true
 
@@ -55,9 +66,32 @@ func _save(ms: MapState) -> void:
 	DirAccess.make_dir_recursive_absolute(ms.path.get_base_dir())
 	var pend := []
 	for m: Vector2i in ms.pending:
-		pend.append([m.x, m.y, ms.pending[m]])
+		pend.append([m.x, m.y, ms.pending[m], ms.attempts.get(m, 0)])
 	var f := FileAccess.open(ms.path, FileAccess.WRITE)
+	if f == null:
+		push_warning("cannot write %s" % ms.path)
+		return
 	f.store_string(JSON.stringify({"since": ms.since, "pending": pend}))
+
+
+## Forgets the mega tiles that already took the process down MAX_ATTEMPTS times.
+func _drop_failing(ms: MapState) -> void:
+	for m: Vector2i in ms.attempts.keys():
+		if ms.attempts[m] >= MAX_ATTEMPTS:
+			Term.say("map %d: giving up on mega tile %s after %d attempts" % [ms.def.id, m, ms.attempts[m]])
+			ms.pending.erase(m)
+			ms.attempts.erase(m)
+
+
+## The next batch from the queue in priority order. A tile the process died on goes alone, to tell which one is the cause.
+func _next_group(ms: MapState, order: Array) -> Array[Vector2i]:
+	var group: Array[Vector2i] = []
+	group.assign(order.slice(0, max_megas))
+	for m in group:
+		if ms.attempts.has(m):
+			group.assign([m])
+			break
+	return group
 
 
 func _scan(ms: MapState, now: float) -> void:
@@ -121,6 +155,7 @@ func _work_one_group() -> bool:
 	var best_ms: MapState = null
 	var best_rank := INF
 	for ms in maps:
+		_drop_failing(ms)
 		for m: Vector2i in ms.pending:
 			var r := _rank(ms, m, ms.pending[m], now)
 			if r < best_rank:
@@ -131,8 +166,7 @@ func _work_one_group() -> bool:
 	var ms := best_ms
 	var order: Array = ms.pending.keys()
 	order.sort_custom(func(a: Vector2i, b: Vector2i) -> bool: return _rank(ms, a, ms.pending[a], now) < _rank(ms, b, ms.pending[b], now))
-	var group: Array[Vector2i] = []
-	group.assign(order.slice(0, max_megas))
+	var group := _next_group(ms, order)
 	if not store.ensure_connected():
 		Term.say("database unreachable: " + store.error)
 		return false
@@ -140,6 +174,9 @@ func _work_one_group() -> bool:
 	var iso := pool.renderer(ms.def.persp_name, ms.def.region_dir)
 	if iso == null:
 		return false
+	for m in group:
+		ms.attempts[m] = ms.attempts.get(m, 0) + 1
+	_save(ms)
 	var t0 := Time.get_ticks_msec()
 	var tiles := pool.render_megas(iso, group, ms.def.mega, ms.def.min_y, ms.def.max_y)
 	var t1 := Time.get_ticks_msec()
@@ -150,9 +187,13 @@ func _work_one_group() -> bool:
 	if _zoom == null:
 		_zoom = ZoomBuilder.new(store, pool.rd)
 	_zoom.rebuild(keys, res["changed"], ms.def.zoom_max, false, int(Time.get_unix_time_from_system() * 1000.0))
+	# the process survived the batch, so the count does not apply any more (database errors are retried without a limit)
+	for m in group:
+		ms.attempts.erase(m)
 	if store.error != "":
 		Term.say("map %d: upload failed (%s), will retry" % [ms.def.id, store.error])
 		store.error = ""
+		_save(ms)
 		return false
 	for m in group:
 		ms.pending.erase(m)

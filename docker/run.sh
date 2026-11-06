@@ -10,7 +10,9 @@
 #   CONFIG        maps.json mounted read-only at /config/maps.json
 #   ONLINE_FILE   proxy presence file mounted at /online.txt (use with run --online-file /online.txt)
 #   EXTRA_GROUPS  space separated gids that may read the world files
-#   NETWORK       docker network (default: host for run/zoom, none otherwise)
+#   NETWORK       docker network (default: $DB_NETWORK or minecraft-network for run/zoom/watch, none otherwise)
+#   DB_PASSWORD_FILE    file with the database password, mounted read-only at /run/secrets/db_password
+#   DYNMAP_DB_PASSWORD  the password itself: passed by name, so its value stays off the docker command line
 #   IMAGE, CPUS, MEMORY
 set -euo pipefail
 
@@ -22,7 +24,7 @@ RENDER_GID=$(getent group render | cut -d: -f3)
 mkdir -p "$OUT_DIR" "$STATE_DIR"
 
 case "${1:-}" in
-    run|zoom|watch) NETWORK=${NETWORK:-host} ;;
+    run|zoom|watch) NETWORK=${NETWORK:-${DB_NETWORK:-minecraft-network}} ;;
     *) NETWORK=${NETWORK:-none} ;;
 esac
 
@@ -31,14 +33,21 @@ MOUNTS=(-v "$DATA_DIR:/data:ro" -v "$OUT_DIR:/out" -v "$STATE_DIR:/state")
 [ -n "${CONFIG:-}" ] && MOUNTS+=(-v "$CONFIG:/config/maps.json:ro")
 [ -n "${ONLINE_FILE:-}" ] && MOUNTS+=(-v "$ONLINE_FILE:/online.txt:ro")
 
+DB_ARGS=()
+if [ -n "${DB_PASSWORD_FILE:-}" ]; then
+    MOUNTS+=(-v "$DB_PASSWORD_FILE:/run/secrets/db_password:ro")
+    DB_ARGS+=(-e DYNMAP_DB_PASSWORD_FILE=/run/secrets/db_password)
+fi
+[ -n "${DYNMAP_DB_PASSWORD:-}" ] && DB_ARGS+=(-e DYNMAP_DB_PASSWORD)
+
 GROUPS_ARGS=(--group-add "$RENDER_GID")
 for g in ${EXTRA_GROUPS:-}; do GROUPS_ARGS+=(--group-add "$g"); done
 
 exec docker run --rm --name toro-renderer --network "$NETWORK" \
     --user "$(id -u):$(id -g)" "${GROUPS_ARGS[@]}" \
     --device /dev/dri/renderD128 \
-    --cpus "${CPUS:-1}" --cpu-shares 32 --memory "${MEMORY:-1g}" --pids-limit 256 \
+    --cpus "${CPUS:-1}" --cpu-shares 32 --memory "${MEMORY:-3g}" --pids-limit 256 \
     --read-only --tmpfs /tmp:size=256m,exec \
     --cap-drop ALL --security-opt no-new-privileges \
-    -e GODOT_RENDERING_METHOD="${GODOT_RENDERING_METHOD:-mobile}" -e DYNMAP_DB_PASSWORD="${DYNMAP_DB_PASSWORD:-}" \
+    -e GODOT_RENDERING_METHOD="${GODOT_RENDERING_METHOD:-mobile}" "${DB_ARGS[@]}" \
     "${MOUNTS[@]}" "$IMAGE" "$@"

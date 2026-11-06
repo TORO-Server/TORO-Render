@@ -18,7 +18,7 @@ func persp() -> Persp:
 
 
 ## Config file (JSON), shape in docker/maps.example.json:
-##   {"db": {host, port, user, password, database}, "live": "wss://.../up/ws", "maps": [{id, region, persp, zoom_max}]}
+##   {"db": {host, port, user, password_file, database}, "live": "wss://.../up/ws", "maps": [{id, region, persp, zoom_max}]}
 static func load_config(path: String) -> Dictionary:
 	if path == "":
 		return {}
@@ -56,11 +56,32 @@ static func from_args(args: Args, cfg: Dictionary) -> MapDef:
 	return m
 
 
-## database settings: config "db" section, overridden by --db-host / --db-port
+## Database settings: config "db" section, overridden by --db-host / --db-port / --db-user.
+## The password comes from the environment or a file, never from the command line or the text of the config: the variable
+## DYNMAP_DB_PASSWORD, else the file named by DYNMAP_DB_PASSWORD_FILE or by "password_file" in the config.
+## A password file that cannot be read sets "error": the store then refuses to connect instead of trying without one.
 static func db_config(args: Args, cfg: Dictionary) -> Dictionary:
-	var db: Dictionary = cfg.get("db", {}).duplicate()
+	var section = cfg.get("db", {})
+	var db: Dictionary = section.duplicate() if section is Dictionary else {}
+	if db.has("password"):
+		push_warning('"password" in the config is ignored: use DYNMAP_DB_PASSWORD or "password_file"')
+		db.erase("password")
 	if args.has("db-host"):
 		db["host"] = args.text("db-host")
 	if args.has("db-port"):
 		db["port"] = args.integer("db-port")
+	if args.has("db-user"):
+		db["user"] = args.text("db-user")
+	var path: String = OS.get_environment("DYNMAP_DB_PASSWORD_FILE")
+	if path == "":
+		path = str(db.get("password_file", ""))
+	db.erase("password_file")
+	if OS.get_environment("DYNMAP_DB_PASSWORD") != "":
+		db["password"] = OS.get_environment("DYNMAP_DB_PASSWORD")
+	elif path != "":
+		var f := FileAccess.open(path, FileAccess.READ)
+		if f == null:
+			db["error"] = "cannot read the database password file %s" % path
+		else:
+			db["password"] = f.get_as_text().rstrip("\r\n")
 	return db
