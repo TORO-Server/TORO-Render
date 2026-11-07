@@ -6,6 +6,11 @@
 #
 # Unprivileged: read-only root, no capabilities, 1 CPU at the lowest share, only the iGPU render node, world directories
 # read-only. Renders only below --max-load, at most --max-megas mega tiles per batch, closest to a player first.
+#
+# To receive block-change events from the game server (TORO-Core's map-dirty module) as well, add
+# "--dirty-port", "9109" and "--dirty-token-file", "/run/secrets/dirty_token" to the command, publish the port on
+# the network the game server can reach (a network both stacks share, not the host's public interface), and add
+# the token as another secret. Without a token the feed stays off.
 services:
   watch:
     image: ghcr.io/toro-server/toro-renderer:latest

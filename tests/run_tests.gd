@@ -29,6 +29,8 @@ func _initialize() -> void:
 	_test_config()
 	_test_live_feed()
 	_test_watch_queue()
+	_test_dirty_feed()
+	_test_watch_flood()
 	print("%d checks, %d failed" % [_checks, _fails])
 	quit(1 if _fails > 0 else 0)
 
@@ -628,3 +630,118 @@ func _test_watch_queue() -> void:
 	_eq("at the limit it is dropped", ms2.pending.has(b), false)
 	_eq("the others stay", ms2.pending.size(), 2)
 	_eq("no count left", ms2.attempts.is_empty(), true)
+
+
+# --- dirty feed (block-change events) ----------------------------------------------------------------------------
+
+
+func _test_dirty_feed() -> void:
+	var msg = JSON.parse_string('{"t":"dirty","worlds":{"main":{"bukkit":[[1,2],[3,4]],"worldedit":[[3,4],[5,6]]},"nether":{"bukkit":"junk"}}}')
+	var parsed := DirtyFeed.parse_dirty(msg)
+	_eq("worlds parsed", parsed.keys(), ["main"])
+	_eq("chunks of both sources merged", parsed["main"].size(), 3)
+	_ok("chunk kept", parsed["main"].has(Vector2i(5, 6)))
+	_eq("bad message", DirtyFeed.parse_dirty({"t": "dirty"}), {})
+	_eq("bad entries dropped", DirtyFeed.parse_dirty({"worlds": {"w": {"bukkit": [["1", 2], [1, 2, 3], [7, 8]]}}}), {"w": [Vector2i(7, 8)]})
+
+	var feed := DirtyFeed.new()
+	feed._token = "secret"
+	var c := {"peer": WebSocketPeer.new(), "authed": false, "deadline": 0}
+	feed._message(c, '{"t":"dirty","worlds":{"main":{"bukkit":[[0,0]]}}}')
+	_eq("dirty before auth is dropped", feed.queued(), 0)
+	feed._message(c, '{"t":"auth","token":"wrong"}')
+	_eq("wrong token does not authenticate", c["authed"], false)
+	feed._message(c, '{"t":"auth","token":"secret"}')
+	_eq("token authenticates", c["authed"], true)
+	feed._message(c, '{"t":"dirty","worlds":{"main":{"bukkit":[[0,0],[1,1]]}}}')
+	_eq("dirty after auth is queued", feed.queued(), 2)
+	var drained := feed.drain()
+	_eq("drained world", drained.keys(), ["main"])
+	_eq("queue empty after drain", feed.queued(), 0)
+
+
+# --- flood control of the resident updater -----------------------------------------------------------------------
+
+
+func _test_watch_flood() -> void:
+	var state := TMP.path_join("state")
+	DirAccess.make_dir_recursive_absolute(state)
+	DirAccess.remove_absolute(state.path_join("watch-8.json"))
+	var def := MapDef.new()
+	def.id = 8
+	def.world = "main"
+	var job := WatchJob.new()
+	_ok("map added", job.add(def, state))
+	var ms: WatchJob.MapState = job.maps[0]
+	var now := 10_000.0
+
+	# merging events: first queued time wins, repeats add heat, the Anvil scan adds none
+	var chunks: Array[Vector2i] = [Vector2i(0, 0)]
+	var offered := job._offer(ms, chunks, now, true)
+	_ok("megas offered", offered > 0)
+	_eq("pending matches the offer", ms.pending.size(), offered)
+	var mega: Vector2i = ms.pending.keys()[0]
+	_eq("offered again adds nothing new", job._offer(ms, chunks, now + 50.0, true), 0)
+	_eq("first queued time kept", ms.pending[mega], now)
+	_eq("heat counted", int(ms.heat.get(mega, 0)), 1)
+	job._offer(ms, chunks, now + 60.0, false)
+	_eq("the scan adds no heat", int(ms.heat.get(mega, 0)), 1)
+
+	# cooldown: a mega inside its cooldown is skipped, a stale one is not
+	ms.pending.clear()
+	ms.heat.clear()
+	var a := Vector2i(10, 10)
+	var b := Vector2i(11, 10)
+	ms.pending[a] = now
+	ms.pending[b] = now
+	ms.cooldown_until[a] = now + 100.0
+	_eq("cooldown skips", job._next_group(ms, [a, b], now), [b])
+	ms.pending[a] = now - job.stale_after - 1.0
+	_eq("stale beats cooldown", job._next_group(ms, [a, b], now), [a, b])
+	ms.cooldown_until.clear()
+
+	# reserved seat: the oldest queued mega leads the batch even when it ranks last
+	ms.pending.clear()
+	var x := Vector2i(20, 20)
+	var y := Vector2i(21, 20)
+	var z := Vector2i(22, 20)
+	ms.pending[x] = now - 10.0
+	ms.pending[y] = now - 300.0
+	ms.pending[z] = now - 100.0
+	var group := job._next_group(ms, [x, y, z], now)
+	_eq("oldest leads the batch", group[0], y)
+	_eq("everybody fits", group.size(), 3)
+
+	# hot cap: with two seats, at most one hot mega rides along
+	var small := WatchJob.new()
+	small.max_megas = 2
+	_ok("map added", small.add(def, state))
+	var sms: WatchJob.MapState = small.maps[0]
+	var h1 := Vector2i(30, 30)
+	var h2 := Vector2i(31, 30)
+	var n1 := Vector2i(32, 30)
+	for m in [h1, h2, n1]:
+		sms.pending[m] = now
+	sms.heat[h1] = WatchJob.HOT_HEAT + 2
+	sms.heat[h2] = WatchJob.HOT_HEAT + 2
+	_eq("hot cap leaves the second hot one out", small._next_group(sms, [h1, h2, n1], now), [h1, n1])
+
+	# bbox order: row by row, nothing dropped
+	ms.pending.clear()
+	var p := Vector2i(5, 9)
+	var q := Vector2i(7, 8)
+	var r := Vector2i(6, 8)
+	for m in [p, q, r]:
+		ms.pending[m] = now
+	_eq("bbox works in row order", job._next_group_bbox(ms, now), [r, q, p])
+	_eq("bbox is the extent", job._pending_bbox(ms), [Vector2i(5, 8), Vector2i(7, 9)])
+
+	# cooldown and heat survive a restart
+	ms.cooldown_until[p] = now + 240.0
+	ms.heat[q] = 4
+	job._save(ms)
+	var again := WatchJob.new()
+	_ok("map added from the saved state", again.add(def, state))
+	var ms2: WatchJob.MapState = again.maps[0]
+	_eq("cooldown survives a restart", float(ms2.cooldown_until.get(p, 0.0)), now + 240.0)
+	_eq("heat survives a restart", int(ms2.heat.get(q, 0)), 4)
