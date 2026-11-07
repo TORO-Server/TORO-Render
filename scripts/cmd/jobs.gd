@@ -43,7 +43,9 @@ static func run(args: Args) -> int:
 
 
 ## `watch --config maps.json [--map-id N,...] [--interval S] [--max-megas N] [--max-load L] [--stale-after S] [--once]`
-## Resident updater for every map of the config.
+##      [--mega-cooldown S] [--bbox-threshold N] [--dirty-port N] [--dirty-token-file F]`
+## Resident updater for every map of the config. The dirty feed (block-change events from the game server)
+## listens only when both a port and a token are set: the token comes from TORO_DIRTY_TOKEN or the file.
 static func watch(args: Args) -> int:
 	var ctx := Context.create(args, 2.5, -1)
 	if ctx.cfg.get("maps", []).is_empty():
@@ -63,7 +65,22 @@ static func watch(args: Args) -> int:
 	job.overlap = args.number("overlap", 30.0)
 	job.max_megas = args.integer("max-megas", 4)
 	job.stale_after = args.number("stale-after-queue", 600.0)
+	job.mega_cooldown = args.number("mega-cooldown", 240.0)
+	job.bbox_threshold = args.integer("bbox-threshold", 256)
 	job.once = args.flag("once")
+	var dirty_port := args.integer("dirty-port", 0)
+	if dirty_port > 0:
+		var token := OS.get_environment("TORO_DIRTY_TOKEN")
+		if token == "" and args.has("dirty-token-file"):
+			var tf := FileAccess.open(args.text("dirty-token-file"), FileAccess.READ)
+			if tf != null:
+				token = tf.get_as_text().strip_edges()
+		if token == "":
+			Term.say("warning: --dirty-port without a token (TORO_DIRTY_TOKEN or --dirty-token-file): the dirty feed stays off")
+		else:
+			var dirty := DirtyFeed.new()
+			if dirty.start(dirty_port, token):
+				job.dirty_feed = dirty
 	var state_dir := args.text("state-dir", "/state")
 	for e in ctx.cfg["maps"]:
 		var map := MapDef.from_entry(e)
